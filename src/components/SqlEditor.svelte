@@ -5,6 +5,16 @@
 
   let sql = '';
 
+  // 暴露给父组件调用的方法 - 设置 SQL 内容
+  export function setSql(newSql) {
+    sql = newSql;
+  }
+
+  // 暴露给父组件调用的方法 - 获取当前 SQL
+  export function getSql() {
+    return sql;
+  }
+
   // 获取选中的 SQL
   function getSelectedSql() {
     const textarea = document.getElementById('sql-editor');

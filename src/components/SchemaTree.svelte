@@ -68,6 +68,13 @@
     }
   }
 
+  // 点击表项 - 阻止冒泡
+  function handleTableClick(db, table, event) {
+    console.log('[SchemaTree] handleTableClick called:', db, table);
+    event.stopPropagation();
+    selectTable(db, table);
+  }
+
   // 监听连接变化
   $: if (connection) {
     loadDatabases();
@@ -123,7 +130,7 @@
                   <div
                     class="table-item"
                     class:view={isView(table)}
-                    on:click={() => selectTable(db, table.name)}
+                    on:click={(e) => handleTableClick(db, table.name, e)}
                   >
                     <span class="table-icon">{isView(table) ? '👁️' : '📊'}</span>
                     <span class="table-name">{table.name}</span>

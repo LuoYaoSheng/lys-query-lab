@@ -5,6 +5,7 @@
   import SchemaTree from './components/SchemaTree.svelte';
   import SqlEditor from './components/SqlEditor.svelte';
   import ResultsPanel from './components/ResultsPanel.svelte';
+  import DataGrid from './components/DataGrid.svelte';
 
   let appInfo = {
     version: '',
@@ -18,6 +19,12 @@
   let queryLoading = false;
   let queryError = null;
   let statusMessage = 'Ready';
+  let currentTableName = ''; // 当前查询的表名
+  let currentDatabase = '';  // 当前数据库
+  let viewMode = 'query';   // 'query' 或 'grid'
+
+  // 用于更新编辑器中的 SQL
+  let editorComponent;
 
   onMount(async () => {
     try {
@@ -78,7 +85,34 @@
 
   function handleSelectTable(e) {
     const { database, table } = e.detail;
-    console.log('Selected table:', database, table);
+
+    // 保存当前表信息
+    currentDatabase = database;
+    currentTableName = `${database}.${table}`;
+
+    // 切换到网格模式（类似 Navicat）
+    viewMode = 'grid';
+  }
+
+  // 切换视图模式
+  function setViewMode(mode) {
+    viewMode = mode;
+    if (mode === 'query' && currentTableName) {
+      // 切换回查询模式时，自动执行查询
+      const parts = currentTableName.split('.');
+      if (parts.length === 2) {
+        const sql = `SELECT * FROM \`${parts[0]}\`.\`${parts[1]}\` LIMIT 1000;`;
+        executeQuery(sql);
+        if (editorComponent && editorComponent.setSql) {
+          editorComponent.setSql(sql);
+        }
+      }
+    }
+  }
+
+  // 刷新网格数据
+  function refreshGrid() {
+    // DataGrid 组件会自动刷新
   }
 </script>
 
@@ -109,26 +143,70 @@
         <div class="sidebar-header">Schema</div>
         <SchemaTree
           connection={selectedConnection}
-          onSelectTable={handleSelectTable}
+          on:selectTable={handleSelectTable}
         />
       </div>
     </aside>
 
     <section class="workspace">
-      <div class="editor-section">
-        <SqlEditor
-          connection={selectedConnection}
-          onExecute={handleExecuteQuery}
-        />
-      </div>
+      {#if currentTableName}
+        <!-- 显示视图切换器 -->
+        <div class="view-switcher">
+          <button
+            class="view-btn"
+            class:active={viewMode === 'query'}
+            on:click={() => setViewMode('query')}
+          >
+            SQL 查询
+          </button>
+          <button
+            class="view-btn"
+            class:active={viewMode === 'grid'}
+            on:click={() => setViewMode('grid')}
+          >
+            数据网格
+          </button>
+        </div>
+      {/if}
 
-      <div class="results-section">
-        <ResultsPanel
-          result={queryResult}
-          loading={queryLoading}
-          error={queryError}
-        />
-      </div>
+      {#if viewMode === 'query' || !currentTableName}
+        <!-- SQL 查询模式 -->
+        <div class="editor-section">
+          <SqlEditor
+            bind:this={editorComponent}
+            connection={selectedConnection}
+            onExecute={handleExecuteQuery}
+          />
+        </div>
+
+        <div class="results-section">
+          <ResultsPanel
+            result={queryResult}
+            loading={queryLoading}
+            error={queryError}
+            connection={selectedConnection}
+            tableName={currentTableName}
+            onRefresh={() => {
+              if (currentTableName) {
+                const parts = currentTableName.split('.');
+                if (parts.length === 2) {
+                  const sql = `SELECT * FROM \`${parts[0]}\`.\`${parts[1]}\` LIMIT 1000;`;
+                  executeQuery(sql);
+                }
+              }
+            }}
+          />
+        </div>
+      {:else}
+        <!-- 数据网格模式 -->
+        <div class="grid-section">
+          <DataGrid
+            connection={selectedConnection}
+            tableName={currentTableName}
+            onRefresh={refreshGrid}
+          />
+        </div>
+      {/if}
     </section>
   </main>
 
@@ -242,6 +320,36 @@
     overflow: hidden;
   }
 
+  .view-switcher {
+    display: flex;
+    gap: 4px;
+    padding: 8px 16px;
+    background: #252526;
+    border-bottom: 1px solid #3e3e3e;
+  }
+
+  .view-btn {
+    padding: 6px 16px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #888;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .view-btn:hover {
+    background: #3e3e3e;
+    color: #d4d4d4;
+  }
+
+  .view-btn.active {
+    background: #007acc;
+    color: white;
+    border-color: #005a9e;
+  }
+
   .editor-section {
     flex: 1;
     min-height: 120px;
@@ -251,6 +359,13 @@
     flex: 1;
     min-height: 120px;
     border-top: 1px solid #3e3e3e;
+  }
+
+  .grid-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .app-footer {

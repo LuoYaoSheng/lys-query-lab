@@ -7,6 +7,31 @@ use mysql_async::{Opts, Row};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
+/// 更新单元格的参数
+#[derive(Deserialize)]
+pub struct UpdateCellParams {
+    pub connection: ConnectionInfo,
+    pub table: String,
+    pub column: String,
+    /// 主键列名
+    pub primary_key: String,
+    /// 主键值
+    pub primary_key_value: String,
+    /// 新值
+    pub new_value: String,
+    /// 是否为 NULL
+    pub is_null: bool,
+}
+
+/// 更新单元格的结果
+#[derive(Serialize)]
+pub struct UpdateCellResult {
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "affectedRows")]
+    pub affected_rows: u64,
+}
+
 /// 查询结果
 #[derive(Serialize, Deserialize)]
 pub struct QueryResult {
@@ -15,6 +40,56 @@ pub struct QueryResult {
     pub sets: Vec<QueryResultSet>,
     #[serde(rename = "elapsedMs")]
     pub elapsed_ms: u64,
+}
+
+/// 更新单个单元格
+#[tauri::command]
+pub async fn query_update_cell(params: UpdateCellParams) -> Result<UpdateCellResult, String> {
+    let opts = build_opts(&params.connection)?;
+
+    // 创建连接
+    let mut conn = mysql_async::Conn::new(opts).await
+        .map_err(|e| format!("连接失败: {}", e))?;
+
+    // 构建 UPDATE 语句
+    let set_clause = if params.is_null {
+        format!("`{}` = NULL", params.column)
+    } else {
+        format!("`{}` = {}", params.column, quote_value(&params.new_value))
+    };
+
+    let sql = format!(
+        "UPDATE `{}` SET {} WHERE `{}` = {} LIMIT 1",
+        params.table,
+        set_clause,
+        params.primary_key,
+        quote_value(&params.primary_key_value)
+    );
+
+    // 执行更新
+    let result = conn.query_drop(&sql).await
+        .map_err(|e| format!("更新失败: {}", e))?;
+
+    let affected_rows = conn.affected_rows();
+
+    // 关闭连接
+    let _ = conn.disconnect().await;
+
+    Ok(UpdateCellResult {
+        success: true,
+        message: format!("更新成功，影响 {} 行", affected_rows),
+        affected_rows,
+    })
+}
+
+/// 引用字符串值（用于 SQL）
+fn quote_value(value: &str) -> String {
+    // 如果是数字，直接返回
+    if value.parse::<i64>().is_ok() || value.parse::<f64>().is_ok() {
+        return value.to_string();
+    }
+    // 否则用单引号包裹并转义
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
 }
 
 /// 执行 SQL
@@ -50,26 +125,27 @@ pub async fn query_execute(
             || stmt_upper.starts_with("WITH");
 
         if is_select {
-            // 执行查询
-            let rows: Vec<Row> = conn.query(*stmt).await
+            // 执行查询 - 使用 query_iter 以便即使没有行也能获取列信息
+            let result = conn.query_iter(*stmt).await
                 .map_err(|e| format!("SQL 错误: {}", e))?;
 
-            // 获取列信息
-            let columns: Vec<Column> = rows.first()
-                .map(|first_row| {
-                    first_row.columns()
-                        .iter()
-                        .map(|c: &mysql_async::Column| Column {
-                            name: c.name_str().to_string(),
-                            column_type: format!("{:?}", c.column_type()),
-                            nullable: true,
-                            default: None,
-                            comment: None,
-                            extra: None,
-                        })
-                        .collect()
+            // 获取列信息（从结果元数据中，不依赖行数据）
+            let columns: Vec<Column> = result.columns()
+                .iter()
+                .flat_map(|col_slice| col_slice.iter())
+                .map(|c: &mysql_async::Column| Column {
+                    name: c.name_str().to_string(),
+                    column_type: format!("{:?}", c.column_type()),
+                    nullable: true,
+                    default: None,
+                    comment: None,
+                    extra: None,
                 })
-                .unwrap_or_default();
+                .collect();
+
+            // 收集行数据
+            let rows: Vec<Row> = result.collect_and_drop().await
+                .map_err(|e| format!("SQL 错误: {}", e))?;
 
             // 转换行数据
             let result_rows: Vec<Vec<RowValue>> = rows

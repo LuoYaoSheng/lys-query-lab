@@ -11,7 +11,7 @@ mod util;
 use commands::{
     app_get_info, conn_delete, conn_list, conn_test, conn_upsert,
     meta_get_schema_tree, meta_get_table_schema, meta_list_databases, meta_list_tables,
-    query_execute,
+    query_execute, query_update_cell,
 };
 
 fn main() {
@@ -28,6 +28,7 @@ fn main() {
             meta_get_table_schema,
             meta_get_schema_tree,
             query_execute,
+            query_update_cell,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
