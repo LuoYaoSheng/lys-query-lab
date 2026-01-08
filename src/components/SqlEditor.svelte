@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { EditorView, basicSetup } from 'codemirror';
   import { EditorState } from '@codemirror/state';
-  import { sql, MySQL, PostgreSQL, StandardSQL } from '@codemirror/lang-sql';
+  import { sql as sqlLanguage, MySQL, PostgreSQL, StandardSQL } from '@codemirror/lang-sql';
   import { keymap, hoverTooltip } from '@codemirror/view';
   import { indentWithTab } from '@codemirror/commands';
   import { autocompletion } from '@codemirror/autocomplete';
@@ -192,7 +192,7 @@
       searchKeymap,
       highlightSelectionMatches(),
       EditorView.theme({
-        '&': { fontSize: '14px', fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace' },
+        '&': { fontSize: '14px', fontFamily: '"SF Mono", Monaco, "Cascadia Code", monospace' },
         '.cm-scroller': { overflow: 'auto' },
         '.cm-content': { padding: '12px 0', minHeight: '100%' },
         '.cm-focused': { outline: 'none' },

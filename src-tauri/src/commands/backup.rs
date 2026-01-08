@@ -75,7 +75,7 @@ pub async fn db_export(params: ExportParams) -> Result<ExportResult, String> {
 
         if params.export_type == "structure" || params.export_type == "both" {
             sql_content.push_str(&format!("-- Table structure for `{}`\n", table_name));
-            sql_content.push_str("DROP TABLE IF EXISTS `" + table_name + "`;\n");
+            sql_content.push_str(&format!("DROP TABLE IF EXISTS `{}`;\n", table_name));
             sql_content.push_str(&create_sql);
             sql_content.push_str("\n\n");
         }
@@ -92,9 +92,6 @@ pub async fn db_export(params: ExportParams) -> Result<ExportResult, String> {
 
         exported_tables += 1;
     }
-
-    // 关闭连接
-    let _ = conn.disconnect().await;
 
     // 根据格式处理输出
     let final_content = match params.format.as_str() {
@@ -120,6 +117,9 @@ pub async fn db_export(params: ExportParams) -> Result<ExportResult, String> {
         }
         _ => sql_content,
     };
+
+    // 关闭连接
+    let _ = conn.disconnect().await;
 
     // 写入文件
     let mut file = File::create(&params.file_path)
@@ -178,11 +178,13 @@ pub async fn db_import(params: ImportParams) -> Result<ImportResult, String> {
             continue;
         }
 
-        match conn.query::<Row, _>(stmt).await {
+        // 检查是否是建表语句（在移动 stmt 之前）
+        let upper = stmt.to_uppercase();
+        let is_create_table = upper.contains("CREATE TABLE");
+
+        match conn.query::<Row, _>(&stmt).await {
             Ok(_) => {
-                // 检查是否是建表语句
-                let upper = stmt.to_uppercase();
-                if upper.contains("CREATE TABLE") {
+                if is_create_table {
                     imported_tables += 1;
                 }
             }
