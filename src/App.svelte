@@ -6,6 +6,7 @@
   import SqlEditor from './components/SqlEditor.svelte';
   import ResultsPanel from './components/ResultsPanel.svelte';
   import DataGrid from './components/DataGrid.svelte';
+  import TableDesigner from './components/TableDesigner.svelte';
 
   let appInfo = {
     version: '',
@@ -21,10 +22,13 @@
   let statusMessage = 'Ready';
   let currentTableName = ''; // 当前查询的表名
   let currentDatabase = '';  // 当前数据库
-  let viewMode = 'query';   // 'query' 或 'grid'
+  let viewMode = 'query';   // 'query' 或 'grid' 或 'design'
+  let isCreatingNewTable = false; // 是否正在创建新表
+  let targetDatabase = ''; // 新建表的目标数据库
 
-  // 用于更新编辑器中的 SQL
+  // 用于更新编辑器中的 SQL 和刷新 SchemaTree
   let editorComponent;
+  let schemaTreeComponent;
 
   onMount(async () => {
     try {
@@ -40,6 +44,14 @@
   function handleConnect(conn) {
     selectedConnection = conn;
     statusMessage = `Connected to ${conn.name || conn.host}`;
+  }
+
+  // 处理新建表事件
+  function handleCreateTable(e) {
+    const { database } = e.detail;
+    targetDatabase = database;
+    isCreatingNewTable = true;
+    viewMode = 'design';
   }
 
   // SQL 执行处理 - 直接调用，不通过事件
@@ -89,6 +101,10 @@
     // 保存当前表信息
     currentDatabase = database;
     currentTableName = `${database}.${table}`;
+
+    // 重置新建表状态
+    isCreatingNewTable = false;
+    targetDatabase = '';
 
     // 切换到网格模式（类似 Navicat）
     viewMode = 'grid';
@@ -142,34 +158,47 @@
       <div class="sidebar-section">
         <div class="sidebar-header">Schema</div>
         <SchemaTree
+          bind:this={schemaTreeComponent}
           connection={selectedConnection}
           on:selectTable={handleSelectTable}
+          on:createTable={handleCreateTable}
         />
       </div>
     </aside>
 
     <section class="workspace">
-      {#if currentTableName}
+      {#if currentTableName || isCreatingNewTable}
         <!-- 显示视图切换器 -->
         <div class="view-switcher">
-          <button
-            class="view-btn"
-            class:active={viewMode === 'query'}
-            on:click={() => setViewMode('query')}
-          >
-            SQL 查询
-          </button>
-          <button
-            class="view-btn"
-            class:active={viewMode === 'grid'}
-            on:click={() => setViewMode('grid')}
-          >
-            数据网格
-          </button>
+          {#if isCreatingNewTable}
+            <span class="creating-indicator">📝 新建表: {targetDatabase}</span>
+          {:else}
+            <button
+              class="view-btn"
+              class:active={viewMode === 'query'}
+              on:click={() => setViewMode('query')}
+            >
+              SQL 查询
+            </button>
+            <button
+              class="view-btn"
+              class:active={viewMode === 'grid'}
+              on:click={() => setViewMode('grid')}
+            >
+              数据网格
+            </button>
+            <button
+              class="view-btn design-btn"
+              class:active={viewMode === 'design'}
+              on:click={() => setViewMode('design')}
+            >
+              📋 设计表
+            </button>
+          {/if}
         </div>
       {/if}
 
-      {#if viewMode === 'query' || !currentTableName}
+      {#if viewMode === 'query' || (!currentTableName && !isCreatingNewTable)}
         <!-- SQL 查询模式 -->
         <div class="editor-section">
           <SqlEditor
@@ -197,13 +226,43 @@
             }}
           />
         </div>
-      {:else}
+      {:else if viewMode === 'grid'}
         <!-- 数据网格模式 -->
         <div class="grid-section">
           <DataGrid
             connection={selectedConnection}
             tableName={currentTableName}
             onRefresh={refreshGrid}
+          />
+        </div>
+      {:else if viewMode === 'design'}
+        <!-- 表设计模式 -->
+        <div class="design-section">
+          <TableDesigner
+            connection={selectedConnection}
+            tableName={isCreatingNewTable ? null : currentTableName}
+            targetDatabase={targetDatabase}
+            isCreatingNewTable={isCreatingNewTable}
+            onClose={() => {
+              isCreatingNewTable = false;
+              targetDatabase = '';
+              setViewMode('grid');
+            }}
+            onRefresh={() => {
+              // 如果是新建表模式，刷新 SchemaTree 中对应数据库的表列表
+              if (isCreatingNewTable && targetDatabase && schemaTreeComponent) {
+                schemaTreeComponent.refreshDatabase(targetDatabase);
+                // 保持在当前数据库并切换到网格模式，方便查看新表
+                currentDatabase = targetDatabase;
+                viewMode = 'grid';
+              } else if (currentTableName) {
+                // 编辑模式，刷新当前表数据
+                refreshGrid();
+              }
+              // 重置新建表状态
+              isCreatingNewTable = false;
+              targetDatabase = '';
+            }}
           />
         </div>
       {/if}
@@ -366,6 +425,18 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .design-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .design-btn.active {
+    background: #9b46c8;
+    border-color: #7a35a0;
   }
 
   .app-footer {

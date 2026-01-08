@@ -6,6 +6,57 @@ use mysql_async::prelude::*;
 use mysql_async::{Opts, Row};
 use serde::{Deserialize, Serialize};
 
+/// 创建数据库参数
+#[derive(Deserialize)]
+pub struct CreateDatabaseParams {
+    pub connection: ConnectionInfo,
+    pub name: String,
+    #[serde(default)]
+    pub charset: String,
+    #[serde(default)]
+    pub collation: String,
+}
+
+/// 创建表参数
+#[derive(Deserialize, Debug)]
+pub struct CreateTableParams {
+    pub connection: ConnectionInfo,
+    pub database: String,
+    pub table: String,
+    pub columns: Vec<ColumnDefinition>,
+    #[serde(default)]
+    pub engine: String,
+    #[serde(default)]
+    pub charset: String,
+    #[serde(default)]
+    pub collation: String,
+    #[serde(default)]
+    pub comment: String,
+}
+
+/// 列定义
+#[derive(Deserialize, Clone, Debug)]
+pub struct ColumnDefinition {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub col_type: String,
+    #[serde(default)]
+    pub length: Option<String>,
+    #[serde(default)]
+    pub nullable: bool,
+    #[serde(default)]
+    #[serde(alias = "primaryKey")]
+    pub primary_key: bool,
+    #[serde(default)]
+    #[serde(alias = "autoIncrement")]
+    pub auto_increment: bool,
+    #[serde(default)]
+    #[serde(alias = "defaultValue")]
+    pub default_value: Option<String>,
+    #[serde(default)]
+    pub comment: String,
+}
+
 /// Schema 树节点
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SchemaNode {
@@ -14,6 +65,187 @@ pub struct SchemaNode {
     #[serde(rename = "type")]
     pub node_type: String,
     pub children: Vec<SchemaNode>,
+}
+
+/// 创建数据库
+#[tauri::command]
+pub async fn meta_create_database(params: CreateDatabaseParams) -> Result<String, String> {
+    let opts = build_opts(&params.connection)?;
+    let mut conn = mysql_async::Conn::new(opts).await
+        .map_err(|e| e.to_string())?;
+
+    let charset_part = if !params.charset.is_empty() {
+        format!("CHARACTER SET {}", params.charset)
+    } else {
+        String::new()
+    };
+
+    let collation_part = if !params.collation.is_empty() {
+        format!("COLLATE {}", params.collation)
+    } else {
+        String::new()
+    };
+
+    let sql = format!(
+        "CREATE DATABASE `{}` {} {}",
+        escape_sql(&params.name),
+        charset_part,
+        collation_part
+    );
+
+    conn.query_drop(&sql)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(format!("数据库 '{}' 创建成功", params.name))
+}
+
+/// 创建表
+#[tauri::command]
+pub async fn meta_create_table(params: CreateTableParams) -> Result<String, String> {
+    // Debug logging - 同时输出到控制台和文件
+    let log_msg = format!("=== DEBUG: Creating table {}.{}, columns: {} ===", params.database, params.table, params.columns.len());
+    println!("{}", log_msg);
+    eprintln!("{}", log_msg);
+
+    // 写入日志文件
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/querylab_debug.log") {
+        use std::io::Write;
+        let _ = writeln!(file, "{}", log_msg);
+        for (i, col) in params.columns.iter().enumerate() {
+            let _ = writeln!(file, "  Column {}: name={}, type={}, nullable={}, pk={}, auto_inc={}",
+                     i, col.name, col.col_type, col.nullable, col.primary_key, col.auto_increment);
+        }
+    }
+
+    let opts = build_opts(&params.connection)?;
+    let mut conn = mysql_async::Conn::new(opts).await
+        .map_err(|e| e.to_string())?;
+
+    // 收集主键列名（自增列必须作为主键）
+    let mut primary_key_names: Vec<String> = Vec::new();
+    for col in &params.columns {
+        if col.auto_increment || col.primary_key {
+            primary_key_names.push(col.name.clone());
+        }
+    }
+    println!("Primary key columns: {:?}", primary_key_names);
+
+    // 构建列定义
+    let column_defs: Vec<String> = params.columns
+        .iter()
+        .map(|col| {
+            let mut def = format!("`{}` {}", col.name, col.col_type);
+
+            if let Some(len) = &col.length {
+                if !len.is_empty() {
+                    def = format!("{}({})", def, len);
+                }
+            }
+
+            // 自增列或主键列必须 NOT NULL
+            if col.auto_increment || col.primary_key || !col.nullable {
+                def.push_str(" NOT NULL");
+            }
+
+            // AUTO_INCREMENT（单独定义，PRIMARY KEY 在表级定义）
+            if col.auto_increment {
+                def.push_str(" AUTO_INCREMENT");
+            }
+
+            if let Some(default_val) = &col.default_value {
+                if !default_val.is_empty() {
+                    def = format!("{} DEFAULT {}", def, quote_sql_value(default_val));
+                }
+            }
+
+            if !col.comment.is_empty() {
+                // 转义注释中的单引号
+                let escaped_comment = col.comment.replace('\'', "''");
+                def = format!("{} COMMENT '{}'", def, escaped_comment);
+            }
+
+            Ok(def)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    // 构建主键定义（在表级定义，包含所有主键列）
+    let pk_def = if !primary_key_names.is_empty() {
+        format!(", PRIMARY KEY ({})", primary_key_names.iter().map(|k| format!("`{}`", k)).collect::<Vec<_>>().join(", "))
+    } else {
+        String::new()
+    };
+    println!("Primary key def: {:?}", pk_def);
+
+    // 构建表选项
+    let engine_part = if !params.engine.is_empty() {
+        format!("ENGINE={}", params.engine)
+    } else {
+        String::from("ENGINE=InnoDB")
+    };
+
+    let charset_part = if !params.charset.is_empty() {
+        format!("CHARACTER SET {}", params.charset)
+    } else {
+        String::from("CHARACTER SET=utf8mb4")
+    };
+
+    let collation_part = if !params.collation.is_empty() {
+        format!("COLLATE {}", params.collation)
+    } else {
+        String::from("COLLATE=utf8mb4_unicode_ci")
+    };
+
+    let comment_part = if !params.comment.is_empty() {
+        format!("COMMENT='{}'", params.comment)
+    } else {
+        String::new()
+    };
+
+    println!("Column defs: {:?}", column_defs);
+
+    let sql = format!(
+        "CREATE TABLE `{}`.`{}` ({}{}) {} {} {}",
+        params.database,
+        params.table,
+        column_defs.join(", "),
+        pk_def,
+        engine_part,
+        charset_part,
+        collation_part
+    );
+
+    let final_sql = if !comment_part.is_empty() {
+        format!("{} {}", sql, comment_part)
+    } else {
+        sql
+    };
+
+    println!("Final SQL: {}", final_sql);
+    eprintln!("Final SQL: {}", final_sql);
+
+    // 写入 SQL 到日志文件
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/querylab_debug.log") {
+        use std::io::Write;
+        let _ = writeln!(file, "SQL: {}", final_sql);
+    }
+
+    conn.query_drop(&final_sql)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(format!("表 '{}.{}' 创建成功", params.database, params.table))
+}
+
+/// SQL 值引用
+fn quote_sql_value(value: &str) -> String {
+    if value.eq_ignore_ascii_case("NULL") {
+        return "NULL".to_string();
+    }
+    if value.eq_ignore_ascii_case("CURRENT_TIMESTAMP") {
+        return value.to_uppercase();
+    }
+    format!("'{}'", value.replace('\'', "''").replace('\\', "\\\\"))
 }
 
 /// 获取数据库列表

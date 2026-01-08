@@ -27,6 +27,9 @@
   let selectedRows = new Set();
   let updateMessage = null;
 
+  // 删除确认对话框状态
+  let showDeleteConfirm = false;
+
   // 筛选状态
   let filterText = '';
   let filterColumn = 'all';
@@ -64,6 +67,9 @@
       const [database, table] = tableName.split('.');
       const offset = (currentPage - 1) * pageSize;
 
+      // 总是加载表结构，以便获取主键和自增信息
+      await loadTableSchema(database, table);
+
       let sql = `SELECT * FROM \`${database}\`.\`${table}\``;
 
       // 添加筛选
@@ -87,15 +93,18 @@
 
       if (result.sets && result.sets[0]) {
         const set = result.sets[0];
-        data.columns = set.columns || [];
-        data.rows = getAllRowsFromSet(set);
-        data.totalRows = set.meta?.affectedRows || data.rows.length;
+        const rows = getAllRowsFromSet(set);
+        // 触发响应式更新
+        data = {
+          columns: set.columns || [],
+          rows: rows,
+          totalRows: set.meta?.affectedRows || rows.length
+        };
         totalPages = Math.ceil(data.totalRows / pageSize);
 
-        // 如果没有数据，获取表结构
-        if (data.rows.length === 0) {
+        // 如果没有数据，标记为空表
+        if (rows.length === 0) {
           isEmptyTable = true;
-          await loadTableSchema(database, table);
         }
       }
     } catch (err) {
@@ -179,29 +188,40 @@
 
   // 新增行
   function addRow() {
+    if (data.columns.length === 0) {
+      updateMessage = { success: false, text: '无法新增：未加载表结构' };
+      return;
+    }
+
     const newRow = new Array(data.columns.length).fill(null);
     newRow[primaryKeyColumn] = ''; // 主键设为空
-    newRows = [...newRows, { data: newRow, index: data.rows.length + newRows.length }];
+    const newRowIndex = data.rows.length + newRows.length;
+
+    // 触发响应式更新
+    newRows = [...newRows, { data: newRow, index: newRowIndex }];
     editingCell = {
-      rowIndex: data.rows.length + newRows.length - 1,
+      rowIndex: newRowIndex,
       colIndex: 0,
       value: '',
       isNew: true
     };
   }
 
-  // 删除选中行
-  async function deleteSelectedRows() {
+  // 删除选中行 - 显示确认对话框
+  function deleteSelectedRows() {
     if (selectedRows.size === 0) return;
+    showDeleteConfirm = true;
+  }
 
-    if (!confirm(`确定要删除选中的 ${selectedRows.size} 行数据吗？`)) {
-      return;
-    }
-
+  // 执行删除
+  async function executeDelete() {
+    showDeleteConfirm = false;
     loading = true;
+
     try {
       const [database, table] = tableName.split('.');
       const pkCol = data.columns[primaryKeyColumn].name;
+      const count = selectedRows.size;
 
       for (const rowIndex of selectedRows) {
         const row = data.rows[rowIndex];
@@ -213,12 +233,17 @@
 
       selectedRows.clear();
       await refresh();
-      updateMessage = { success: true, text: `成功删除 ${selectedRows.size} 行` };
+      updateMessage = { success: true, text: `成功删除 ${count} 行` };
     } catch (err) {
       updateMessage = { success: false, text: '删除失败: ' + err };
     } finally {
       loading = false;
     }
+  }
+
+  // 取消删除
+  function cancelDelete() {
+    showDeleteConfirm = false;
   }
 
   function quoteValue(value) {
@@ -307,10 +332,52 @@
     loading = true;
     try {
       const [database, table] = tableName.split('.');
-      const columns = data.columns.map(c => `\`${c.name}\``).join(', ');
-      const values = newRow.data.map(v => quoteValue(v === '' ? null : v)).join(', ');
 
-      const sql = `INSERT INTO \`${database}\`.\`${table}\` (${columns}) VALUES (${values})`;
+      // 找出自增主键列，需要从 INSERT 语句中排除
+      const autoIncrementCols = [];
+      if (tableSchema && tableSchema.columns) {
+        tableSchema.columns.forEach(col => {
+          if (col.extra && col.extra.includes('auto_increment')) {
+            autoIncrementCols.push(col.name);
+          }
+        });
+      }
+      // 备用：通过索引检查主键列
+      if (autoIncrementCols.length === 0 && tableSchema && tableSchema.indexes) {
+        const pkIndex = tableSchema.indexes.find(idx => idx.name === 'PRIMARY');
+        if (pkIndex && pkIndex.columns.length === 1) {
+          // 单列主键，可能是自增的
+          const pkCol = pkIndex.columns[0];
+          // 检查列类型是否支持自增
+          const pkColDef = tableSchema.columns.find(c => c.name === pkCol);
+          if (pkColDef) {
+            const type = pkColDef.column_type || pkColDef.type || '';
+            if (/int|bigint|smallint|tinyint/i.test(type)) {
+              autoIncrementCols.push(pkCol);
+            }
+          }
+        }
+      }
+
+      console.log('Auto increment columns:', autoIncrementCols);
+
+      // 构建列列表和值列表（排除自增列）
+      const columns = [];
+      const values = [];
+      for (let i = 0; i < data.columns.length; i++) {
+        const col = data.columns[i];
+        // 跳过自增主键列
+        if (autoIncrementCols.includes(col.name)) {
+          console.log(`Skipping auto-increment column: ${col.name}`);
+          continue;
+        }
+        columns.push(`\`${col.name}\``);
+        values.push(quoteValue(newRow.data[i] === '' ? null : newRow.data[i]));
+      }
+
+      const sql = `INSERT INTO \`${database}\`.\`${table}\` (${columns.join(', ')}) VALUES (${values.join(', ')})`;
+      console.log('Insert SQL:', sql);
+
       await invoke('query_execute', { connection, sql, maxRows: 0 });
 
       newRows = newRows.filter(r => r.index !== newRow.index);
@@ -450,7 +517,7 @@
             </tr>
           </thead>
           <tbody>
-            {#if data.rows.length === 0}
+            {#if data.rows.length === 0 && newRows.length === 0}
               <!-- 空表 - 显示占位行 -->
               <tr class="empty-row">
                 <td colspan="{data.columns.length + 2}">
@@ -472,12 +539,12 @@
                   class:new-row={isNewRow}
                 >
                   <td class="row-num">{rowIndex + 1}</td>
-                  <td class="row-checkbox">
+                  <td class="row-checkbox" on:click|stopPropagation>
                     {#if !isNewRow}
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        on:change={() => toggleRowSelection(rowIndex)}
+                        on:click|stopPropagation={() => toggleRowSelection(rowIndex)}
                       />
                     {/if}
                   </td>
@@ -532,6 +599,25 @@
     {/if}
   </div>
 </div>
+
+<!-- 删除确认对话框 -->
+{#if showDeleteConfirm}
+  <div class="confirm-dialog-overlay" on:click={cancelDelete}>
+    <div class="confirm-dialog" on:click|stopPropagation>
+      <div class="confirm-dialog-header">
+        <h3>确认删除</h3>
+      </div>
+      <div class="confirm-dialog-body">
+        <p>确定要删除选中的 <strong>{selectedRows.size}</strong> 行数据吗？</p>
+        <p class="confirm-warning">此操作不可撤销！</p>
+      </div>
+      <div class="confirm-dialog-footer">
+        <button class="btn-confirm btn-confirm-cancel" on:click={cancelDelete}>取消</button>
+        <button class="btn-confirm btn-confirm-delete" on:click={executeDelete}>删除</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .datagrid-container {
@@ -1017,5 +1103,107 @@
     padding: 40px;
     color: #888;
     font-size: 14px;
+  }
+
+  /* 删除确认对话框样式 */
+  .confirm-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .confirm-dialog {
+    background: #2d2d2d;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    width: 400px;
+    max-width: 90vw;
+    animation: dialogFadeIn 0.15s ease-out;
+  }
+
+  @keyframes dialogFadeIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .confirm-dialog-header {
+    padding: 16px;
+    border-bottom: 1px solid #3e3e3e;
+  }
+
+  .confirm-dialog-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #f48771;
+  }
+
+  .confirm-dialog-body {
+    padding: 20px 16px;
+  }
+
+  .confirm-dialog-body p {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: #d4d4d4;
+  }
+
+  .confirm-dialog-body strong {
+    color: #f48771;
+    font-size: 16px;
+  }
+
+  .confirm-warning {
+    color: #f48771 !important;
+    font-size: 13px !important;
+    margin-top: 12px !important;
+  }
+
+  .confirm-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px;
+    border-top: 1px solid #3e3e3e;
+  }
+
+  .btn-confirm {
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+
+  .btn-confirm-cancel {
+    background: #3e3e3e;
+    color: #d4d4d4;
+  }
+
+  .btn-confirm-cancel:hover {
+    background: #4e4e4e;
+  }
+
+  .btn-confirm-delete {
+    background: #f48771;
+    color: white;
+  }
+
+  .btn-confirm-delete:hover {
+    background: #d9403a;
   }
 </style>
