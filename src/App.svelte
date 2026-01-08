@@ -7,6 +7,8 @@
   import ResultsPanel from './components/ResultsPanel.svelte';
   import DataGrid from './components/DataGrid.svelte';
   import TableDesigner from './components/TableDesigner.svelte';
+  import DataSync from './components/DataSync.svelte';
+  import DatabaseBackup from './components/DatabaseBackup.svelte';
 
   let appInfo = {
     version: '',
@@ -22,13 +24,27 @@
   let statusMessage = 'Ready';
   let currentTableName = ''; // 当前查询的表名
   let currentDatabase = '';  // 当前数据库
-  let viewMode = 'query';   // 'query' 或 'grid' 或 'design'
+  let viewMode = 'query';   // 'query' 或 'grid' 或 'design' 或 'sync' 或 'backup'
   let isCreatingNewTable = false; // 是否正在创建新表
   let targetDatabase = ''; // 新建表的目标数据库
+  let databases = []; // 数据库列表
 
   // 用于更新编辑器中的 SQL 和刷新 SchemaTree
   let editorComponent;
   let schemaTreeComponent;
+
+  // 获取数据库列表
+  async function loadDatabases() {
+    if (!selectedConnection) return;
+    try {
+      const result = await invoke('meta_list_databases', { connection: selectedConnection });
+      databases = result.filter(db =>
+        !['information_schema', 'mysql', 'performance_schema', 'sys'].includes(db)
+      );
+    } catch (err) {
+      console.error('Failed to load databases:', err);
+    }
+  }
 
   onMount(async () => {
     try {
@@ -44,6 +60,27 @@
   function handleConnect(conn) {
     selectedConnection = conn;
     statusMessage = `Connected to ${conn.name || conn.host}`;
+    loadDatabases();
+  }
+
+  // 处理数据同步完成
+  function handleSyncComplete() {
+    // 刷新 SchemaTree
+    if (schemaTreeComponent) {
+      schemaTreeComponent.refreshAll();
+    }
+    // 重新加载数据库列表
+    loadDatabases();
+  }
+
+  // 打开数据同步
+  function openDataSync() {
+    viewMode = 'sync';
+  }
+
+  // 打开数据库备份
+  function openDatabaseBackup() {
+    viewMode = 'backup';
   }
 
   // 处理新建表事件
@@ -87,6 +124,47 @@
     } finally {
       queryLoading = false;
       console.log('Query done, loading = false');
+    }
+  }
+
+  // 批量执行处理
+  async function handleBatchExecute(sql, useTransaction) {
+    console.log('handleBatchExecute called:', sql, 'useTransaction:', useTransaction);
+
+    if (!selectedConnection) {
+      queryError = '请先选择连接';
+      statusMessage = 'No connection';
+      return;
+    }
+
+    queryLoading = true;
+    queryError = null;
+    queryResult = null;
+
+    // 构建执行SQL
+    let finalSql = sql;
+    if (useTransaction) {
+      finalSql = 'START TRANSACTION;\n' + sql + '\nCOMMIT;';
+    }
+
+    statusMessage = useTransaction ? 'Batch executing with transaction...' : 'Batch executing...';
+
+    try {
+      const startTime = Date.now();
+      const result = await invoke('query_execute', {
+        connection: selectedConnection,
+        sql: finalSql,
+        maxRows: 1000
+      });
+      const elapsed = Date.now() - startTime;
+      queryResult = result;
+      statusMessage = `Batch completed: ${result.sets.length} statements, ${elapsed}ms`;
+    } catch (err) {
+      console.error('Batch query error:', err);
+      queryError = String(err);
+      statusMessage = 'Batch execution failed';
+    } finally {
+      queryLoading = false;
     }
   }
 
@@ -167,35 +245,49 @@
     </aside>
 
     <section class="workspace">
-      {#if currentTableName || isCreatingNewTable}
-        <!-- 显示视图切换器 -->
-        <div class="view-switcher">
-          {#if isCreatingNewTable}
-            <span class="creating-indicator">📝 新建表: {targetDatabase}</span>
-          {:else}
-            <button
-              class="view-btn"
-              class:active={viewMode === 'query'}
-              on:click={() => setViewMode('query')}
-            >
-              SQL 查询
-            </button>
-            <button
-              class="view-btn"
-              class:active={viewMode === 'grid'}
-              on:click={() => setViewMode('grid')}
-            >
-              数据网格
-            </button>
-            <button
-              class="view-btn design-btn"
-              class:active={viewMode === 'design'}
-              on:click={() => setViewMode('design')}
-            >
-              📋 设计表
-            </button>
-          {/if}
-        </div>
+      <!-- 视图切换器 -->
+      <div class="view-switcher">
+        <button
+          class="view-btn"
+          class:active={viewMode === 'query'}
+          on:click={() => setViewMode('query')}
+        >
+          SQL 查询
+        </button>
+        {#if currentTableName}
+          <button
+            class="view-btn"
+            class:active={viewMode === 'grid'}
+            on:click={() => setViewMode('grid')}
+          >
+            数据网格
+          </button>
+          <button
+            class="view-btn design-btn"
+            class:active={viewMode === 'design'}
+            on:click={() => setViewMode('design')}
+          >
+            📋 设计表
+          </button>
+        {/if}
+        <button
+          class="view-btn sync-btn"
+          class:active={viewMode === 'sync'}
+          on:click={openDataSync}
+        >
+          🔄 数据同步
+        </button>
+        <button
+          class="view-btn backup-btn"
+          class:active={viewMode === 'backup'}
+          on:click={openDatabaseBackup}
+        >
+          💾 备份还原
+        </button>
+      </div>
+
+      {#if isCreatingNewTable}
+        <div class="creating-indicator">📝 新建表: {targetDatabase}</div>
       {/if}
 
       {#if viewMode === 'query' || (!currentTableName && !isCreatingNewTable)}
@@ -205,6 +297,7 @@
             bind:this={editorComponent}
             connection={selectedConnection}
             onExecute={handleExecuteQuery}
+            onBatchExecute={handleBatchExecute}
           />
         </div>
 
@@ -263,6 +356,25 @@
               isCreatingNewTable = false;
               targetDatabase = '';
             }}
+          />
+        </div>
+      {:else if viewMode === 'sync'}
+        <!-- 数据同步模式 -->
+        <div class="sync-section">
+          <DataSync
+            connection={selectedConnection}
+            databases={databases}
+            on:syncComplete={handleSyncComplete}
+            on:close={() => setViewMode('query')}
+          />
+        </div>
+      {:else if viewMode === 'backup'}
+        <!-- 数据库备份模式 -->
+        <div class="backup-section">
+          <DatabaseBackup
+            connection={selectedConnection}
+            databases={databases}
+            onClose={() => setViewMode('query')}
           />
         </div>
       {/if}
@@ -437,6 +549,37 @@
   .design-btn.active {
     background: #9b46c8;
     border-color: #7a35a0;
+  }
+
+  .sync-btn.active {
+    background: #0e639c;
+    border-color: #0a4a74;
+  }
+
+  .backup-btn.active {
+    background: #c84e4e;
+    border-color: #a03535;
+  }
+
+  .sync-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .backup-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .creating-indicator {
+    padding: 8px 16px;
+    background: #2a3a2e;
+    color: #4ec9b0;
+    font-size: 12px;
   }
 
   .app-footer {

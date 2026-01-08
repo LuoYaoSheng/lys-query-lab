@@ -20,6 +20,17 @@
   let selectedCharset = 'utf8mb4';
   let selectedCollation = 'utf8mb4_unicode_ci';
 
+  // 右键菜单状态
+  let contextMenu = null; // { db, table, x, y, isView }
+  let showDeleteTableDialog = false;
+  let showRenameTableDialog = false;
+  let showTruncateTableDialog = false;
+  let deleteTableName = '';
+  let renameTableName = '';
+  let renameTableNewName = '';
+  let truncateTableName = '';
+  let tableOperating = false;
+
   // 暴露给父组件的方法
   export function refreshDatabase(db) {
     // 清除缓存，强制重新加载
@@ -149,7 +160,157 @@
   // 点击表项 - 阻止冒泡
   function handleTableClick(db, table, event) {
     event.stopPropagation();
+    // 关闭右键菜单
+    contextMenu = null;
     selectTable(db, table);
+  }
+
+  // 右键菜单
+  function handleTableContextMenu(db, table, isView, event) {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = {
+      db,
+      table,
+      isView,
+      x: event.clientX,
+      y: event.clientY
+    };
+  }
+
+  // 关闭右键菜单
+  function closeContextMenu() {
+    contextMenu = null;
+  }
+
+  // 删除表
+  async function deleteTable() {
+    if (!contextMenu) return;
+    const { db, table } = contextMenu;
+    deleteTableName = `${db}.${table}`;
+    showDeleteTableDialog = true;
+    contextMenu = null;
+  }
+
+  // 执行删除表
+  async function executeDeleteTable() {
+    if (!connection || !deleteTableName) return;
+
+    tableOperating = true;
+    try {
+      const [db, table] = deleteTableName.split('.');
+      const sql = `DROP TABLE \`${db}\`.\`${table}\`;`;
+      await invoke('query_execute', { connection, sql, maxRows: 0 });
+      alert('表删除成功！');
+      showDeleteTableDialog = false;
+      deleteTableName = '';
+      // 刷新表列表
+      delete tablesData[db];
+      tablesData = { ...tablesData };
+      await loadTables(db);
+    } catch (err) {
+      alert('删除表失败: ' + err);
+    } finally {
+      tableOperating = false;
+    }
+  }
+
+  // 重命名表
+  async function renameTable() {
+    if (!contextMenu || contextMenu.isView) {
+      alert('视图不支持重命名');
+      contextMenu = null;
+      return;
+    }
+    const { db, table } = contextMenu;
+    renameTableName = table;
+    renameTableNewName = table;
+    showRenameTableDialog = true;
+    contextMenu = null;
+  }
+
+  // 执行重命名表
+  async function executeRenameTable() {
+    if (!connection || !renameTableName || !renameTableNewName) return;
+    if (renameTableName === renameTableNewName) {
+      showRenameTableDialog = false;
+      return;
+    }
+
+    tableOperating = true;
+    try {
+      // 需要找到这个表所在的数据库
+      let targetDb = null;
+      for (const db of databases) {
+        if (tablesData[db]) {
+          const found = tablesData[db].find(t => t.name === renameTableName);
+          if (found) {
+            targetDb = db;
+            break;
+          }
+        }
+      }
+      if (!targetDb) {
+        alert('找不到表所在的数据库');
+        return;
+      }
+      const sql = `RENAME TABLE \`${targetDb}\`.\`${renameTableName}\` TO \`${targetDb}\`.\`${renameTableNewName}\`;`;
+      await invoke('query_execute', { connection, sql, maxRows: 0 });
+      alert('表重命名成功！');
+      showRenameTableDialog = false;
+      renameTableName = '';
+      renameTableNewName = '';
+      // 刷新表列表
+      delete tablesData[targetDb];
+      tablesData = { ...tablesData };
+      await loadTables(targetDb);
+    } catch (err) {
+      alert('重命名表失败: ' + err);
+    } finally {
+      tableOperating = false;
+    }
+  }
+
+  // 清空表
+  async function truncateTable() {
+    if (!contextMenu || contextMenu.isView) {
+      alert('视图不支持清空');
+      contextMenu = null;
+      return;
+    }
+    const { db, table } = contextMenu;
+    truncateTableName = `${db}.${table}`;
+    showTruncateTableDialog = true;
+    contextMenu = null;
+  }
+
+  // 执行清空表
+  async function executeTruncateTable() {
+    if (!connection || !truncateTableName) return;
+
+    tableOperating = true;
+    try {
+      const [db, table] = truncateTableName.split('.');
+      const sql = `TRUNCATE TABLE \`${db}\`.\`${table}\`;`;
+      await invoke('query_execute', { connection, sql, maxRows: 0 });
+      alert('表数据已清空！');
+      showTruncateTableDialog = false;
+      truncateTableName = '';
+    } catch (err) {
+      alert('清空表失败: ' + err);
+    } finally {
+      tableOperating = false;
+    }
+  }
+
+  // 刷新表列表
+  async function refreshTableList() {
+    if (!contextMenu) return;
+    const { db } = contextMenu;
+    contextMenu = null;
+    delete tablesData[db];
+    tablesData = { ...tablesData };
+    await loadTables(db);
   }
 
   // 创建数据库
@@ -292,12 +453,14 @@
                 <div class="empty-tables">无表</div>
               {:else}
                 {#each tables as table}
+                  {@const tableView = isView(table)}
                   <div
                     class="table-item"
-                    class:view={isView(table)}
+                    class:view={tableView}
                     on:click={(e) => handleTableClick(db, table.name, e)}
+                    on:contextmenu={(e) => handleTableContextMenu(db, table.name, tableView, e)}
                   >
-                    <span class="table-icon">{isView(table) ? '👁️' : '📊'}</span>
+                    <span class="table-icon">{tableView ? '👁️' : '📊'}</span>
                     <span class="table-name">{table.name}</span>
                     {#if table.comment}
                       <span class="table-comment" title={table.comment}>{table.comment}</span>
@@ -355,6 +518,112 @@
         <button class="btn btn-secondary" on:click={() => showCreateDbDialog = false}>取消</button>
         <button class="btn btn-primary" on:click={createDatabase} disabled={creating}>
           {creating ? '创建中...' : '创建'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- 右键菜单 -->
+{#if contextMenu}
+  <div
+    class="context-menu-overlay"
+    on:click={closeContextMenu}
+    style="left: 0; top: 0; right: 0; bottom: 0; position: fixed;"
+  >
+    <div
+      class="context-menu"
+      style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+    >
+      <button class="context-menu-item" on:click={refreshTableList}>
+        <span class="menu-icon">🔄</span> 刷新
+      </button>
+      <button class="context-menu-item" on:click={renameTable}>
+        <span class="menu-icon">✏️</span> 重命名表
+      </button>
+      <button class="context-menu-item" on:click={truncateTable}>
+        <span class="menu-icon">🗑️</span> 清空表数据
+      </button>
+      <div class="context-menu-divider"></div>
+      <button class="context-menu-item danger" on:click={deleteTable}>
+        <span class="menu-icon">❌</span> 删除表
+      </button>
+    </div>
+  </div>
+{/if}
+
+<!-- 删除表确认对话框 -->
+{#if showDeleteTableDialog}
+  <div class="dialog-overlay" on:click={() => showDeleteTableDialog = false}>
+    <div class="dialog" on:click|stopPropagation>
+      <div class="dialog-header">
+        <h3>确认删除表</h3>
+        <button class="dialog-close" on:click={() => showDeleteTableDialog = false}>&times;</button>
+      </div>
+      <div class="dialog-body">
+        <p>确定要删除表 <strong>{deleteTableName}</strong> 吗？</p>
+        <p class="confirm-warning">⚠️ 此操作不可撤销！表结构和数据将被永久删除！</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" on:click={() => showDeleteTableDialog = false} disabled={tableOperating}>取消</button>
+        <button class="btn btn-danger" on:click={executeDeleteTable} disabled={tableOperating}>
+          {tableOperating ? '删除中...' : '确认删除'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- 重命名表对话框 -->
+{#if showRenameTableDialog}
+  <div class="dialog-overlay" on:click={() => showRenameTableDialog = false}>
+    <div class="dialog" on:click|stopPropagation>
+      <div class="dialog-header">
+        <h3>重命名表</h3>
+        <button class="dialog-close" on:click={() => showRenameTableDialog = false}>&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="form-group">
+          <label>原表名</label>
+          <input type="text" class="form-input" value={renameTableName} disabled />
+        </div>
+        <div class="form-group">
+          <label>新表名</label>
+          <input
+            type="text"
+            class="form-input"
+            bind:value={renameTableNewName}
+            placeholder="new_table_name"
+            on:keydown={(e) => e.key === 'Enter' && executeRenameTable()}
+          />
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" on:click={() => showRenameTableDialog = false} disabled={tableOperating}>取消</button>
+        <button class="btn btn-primary" on:click={executeRenameTable} disabled={tableOperating}>
+          {tableOperating ? '重命名中...' : '确认'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- 清空表确认对话框 -->
+{#if showTruncateTableDialog}
+  <div class="dialog-overlay" on:click={() => showTruncateTableDialog = false}>
+    <div class="dialog" on:click|stopPropagation>
+      <div class="dialog-header">
+        <h3>确认清空表</h3>
+        <button class="dialog-close" on:click={() => showTruncateTableDialog = false}>&times;</button>
+      </div>
+      <div class="dialog-body">
+        <p>确定要清空表 <strong>{truncateTableName}</strong> 的所有数据吗？</p>
+        <p class="confirm-warning">⚠️ 此操作不可撤销！所有数据将被永久删除！</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" on:click={() => showTruncateTableDialog = false} disabled={tableOperating}>取消</button>
+        <button class="btn btn-danger" on:click={executeTruncateTable} disabled={tableOperating}>
+          {tableOperating ? '清空中...' : '确认清空'}
         </button>
       </div>
     </div>
@@ -659,5 +928,75 @@
 
   .btn-primary:hover:not(:disabled) {
     background: #006cbd;
+  }
+
+  .btn-danger {
+    background: #d73a49;
+    color: white;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #cb2c3b;
+  }
+
+  .confirm-warning {
+    color: #f48771;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+
+  /* 右键菜单样式 */
+  .context-menu-overlay {
+    position: fixed;
+    z-index: 2000;
+  }
+
+  .context-menu {
+    position: fixed;
+    background: #2d2d2d;
+    border: 1px solid #3e3e3e;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    min-width: 160px;
+    padding: 4px 0;
+    z-index: 2001;
+  }
+
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: #d4d4d4;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .context-menu-item:hover {
+    background: #3e3e3e;
+  }
+
+  .context-menu-item.danger {
+    color: #f48771;
+  }
+
+  .context-menu-item.danger:hover {
+    background: #4a2a2a;
+  }
+
+  .menu-icon {
+    width: 16px;
+    text-align: center;
+  }
+
+  .context-menu-divider {
+    height: 1px;
+    background: #3e3e3e;
+    margin: 4px 0;
   }
 </style>

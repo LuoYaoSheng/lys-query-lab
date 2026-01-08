@@ -1,5 +1,6 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
+  import { save } from '@tauri-apps/plugin-dialog';
 
   export let connection = null;
   export let tableName = '';
@@ -437,6 +438,135 @@
     if (typeof value === 'object') return '[Binary]';
     return String(value);
   }
+
+  // 导出为 CSV
+  async function exportCSV() {
+    if (data.columns.length === 0) return;
+
+    const rows = allRows;
+    const columns = data.columns;
+    const [database, table] = tableName.split('.');
+
+    // 构建 CSV 内容
+    let csv = '';
+
+    // 表头
+    csv += columns.map(col => escapeCSV(col.name)).join(',') + '\n';
+
+    // 数据行
+    for (const row of rows) {
+      csv += row.map(cell => escapeCSV(cell === null ? 'NULL' : String(cell))).join(',') + '\n';
+    }
+
+    await downloadFile(csv, `${table}_export.csv`, 'text/csv', ['csv']);
+  }
+
+  // 导出为 JSON
+  async function exportJSON() {
+    if (data.columns.length === 0) return;
+
+    const rows = allRows;
+    const columns = data.columns;
+    const [database, table] = tableName.split('.');
+
+    // 构建 JSON 内容
+    const data = rows.map(row => {
+      const obj = {};
+      columns.forEach((col, i) => {
+        obj[col.name] = row[i] === null ? null : row[i];
+      });
+      return obj;
+    });
+
+    const json = JSON.stringify(data, null, 2);
+    await downloadFile(json, `${table}_export.json`, 'application/json', ['json']);
+  }
+
+  // 导出为 SQL INSERT
+  async function exportSQL() {
+    if (data.columns.length === 0) return;
+
+    const rows = allRows;
+    const columns = data.columns;
+    const [database, table] = tableName.split('.');
+
+    // 构建 SQL INSERT 语句
+    let sql = '';
+    sql += `-- Data export from ${database}.${table}\n`;
+    sql += `-- Generated at ${new Date().toISOString()}\n\n`;
+
+    const colNames = columns.map(c => `\`${c.name}\``).join(', ');
+
+    for (const row of rows) {
+      const values = row.map(v => {
+        if (v === null) return 'NULL';
+        if (typeof v === 'number') return String(v);
+        return `'${String(v).replace(/'/g, "''").replace(/\\/g, '\\\\')}'`;
+      }).join(', ');
+
+      sql += `INSERT INTO \`${database}\`.\`${table}\` (${colNames}) VALUES (${values});\n`;
+    }
+
+    await downloadFile(sql, `${table}_export.sql`, 'text/plain', ['sql']);
+  }
+
+  // CSV 转义
+  function escapeCSV(value) {
+    const str = String(value);
+    if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  }
+
+  // 下载文件
+  async function downloadFile(content, filename, mimeType, extensions) {
+    try {
+      const path = await save({
+        title: '导出数据',
+        defaultPath: filename,
+        filters: [
+          {
+            name: extensions[0].toUpperCase(),
+            extensions: extensions
+          }
+        ]
+      });
+
+      if (path) {
+        // 使用 Tauri API 写入文件
+        try {
+          await invoke('fs_write_file', {
+            path: path,
+            contents: content
+          });
+          updateMessage = { success: true, text: `导出成功: ${filename}` };
+        } catch (err) {
+          console.error('Write error:', err);
+          // 降级使用浏览器下载
+          browserDownload(content, filename, mimeType);
+        }
+      }
+    } catch (err) {
+      console.error('Save dialog error:', err);
+      // 降级使用浏览器下载
+      browserDownload(content, filename, mimeType);
+    }
+  }
+
+  // 浏览器下载（降级方案）
+  function browserDownload(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    updateMessage = { success: true, text: `导出成功: ${filename}` };
+  }
 </script>
 
 <div class="datagrid-container">
@@ -456,6 +586,16 @@
         title="删除选中行"
       >
         - 删除 ({selectedRows.size})
+      </button>
+      <div class="toolbar-divider"></div>
+      <button class="btn-toolbar btn-export" on:click={exportCSV} disabled={data.columns.length === 0} title="导出为 CSV">
+        &#128196; CSV
+      </button>
+      <button class="btn-toolbar btn-export" on:click={exportJSON} disabled={data.columns.length === 0} title="导出为 JSON">
+        &#128193; JSON
+      </button>
+      <button class="btn-toolbar btn-export" on:click={exportSQL} disabled={data.columns.length === 0} title="导出为 SQL">
+        &#128196; SQL
       </button>
     </div>
     <div class="toolbar-right">
@@ -683,6 +823,23 @@
 
   .btn-delete:hover:not(:disabled) {
     background: #d9403a;
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 20px;
+    background: #3e3e3e;
+    margin: 0 4px;
+  }
+
+  .btn-export {
+    background: #3e3e3e;
+    border-color: #4e4e4e;
+  }
+
+  .btn-export:hover:not(:disabled) {
+    background: #4e4e4e;
+    border-color: #007acc;
   }
 
   .filter-input {
