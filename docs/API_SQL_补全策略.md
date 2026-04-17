@@ -2,7 +2,10 @@
 >
 > 当前 `QueryLab` 本地实现使用的是 `Tauri 2 + Rust + Svelte 5 + CodeMirror 6`。
 > 这份文档里的 API 设计和元数据 SQL 仍然有效，但编辑器部分最初是按 `Monaco` 思路写的。
-> 现在应将这里的“补全策略”理解为**编辑器能力设计参考**，当前实现落点应优先映射到 `CodeMirror`。
+> 现在应将这里的“补全策略”理解为 **CodeMirror 6 落地参考**：
+> - `Monaco completion provider` -> `CodeMirror completion source`
+> - `editor model` -> `EditorState` / 文档状态
+> - `language service` -> Rust 元数据命令 + 前端补全整合层
 
 下面继续把你要的 3 块补齐：**Tauri Commands API（入参/出参 JSON）**、**MySQL 元数据 SQL 清单**、**编辑器补全策略（缓存/刷新/性能）**。都按“直接照着写代码”的粒度来。
 
@@ -717,4 +720,3 @@ type Cache = {
 2. **结果列 → 反向补全**：查询结果表格里右键列名 “复制字段名/插入到编辑器”
 
 ---
-

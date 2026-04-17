@@ -26,12 +26,14 @@
 
 ## 当前文档索引
 
+- [README.md](/Users/luoyaosheng/Desktop/project/Open/QueryLab/README.md)
+  - 仓库入口、技术栈和当前工作区说明
 - [PRD.md](./PRD.md)
   - 产品边界、MVP 范围、用户场景
 - [API_SQL_补全策略.md](./API_SQL_补全策略.md)
   - SQL 补全与元数据策略
 - [src-ui/README.md](/Users/luoyaosheng/Desktop/project/Open/QueryLab/src-ui/README.md)
-  - 当前前端与 Tauri 工作区说明
+  - `src-ui/` 并行工作区说明
 
 ---
 
@@ -47,12 +49,14 @@
 
 - 产品边界收口
 - 工程现实对齐
+- 根目录工作区与 `src-ui/` 的关系说明
 - 后续 README 和网站展示
 
 ---
 
 ## 当前建议阅读顺序
 
-1. 先看 [PRD.md](./PRD.md)
-2. 再看 [src-ui/README.md](/Users/luoyaosheng/Desktop/project/Open/QueryLab/src-ui/README.md)
-3. 最后按需看 [API_SQL_补全策略.md](./API_SQL_补全策略.md)
+1. 先看 [README.md](/Users/luoyaosheng/Desktop/project/Open/QueryLab/README.md)
+2. 再看 [PRD.md](./PRD.md)
+3. 然后看 [src-ui/README.md](/Users/luoyaosheng/Desktop/project/Open/QueryLab/src-ui/README.md)
+4. 最后按需看 [API_SQL_补全策略.md](./API_SQL_补全策略.md)
