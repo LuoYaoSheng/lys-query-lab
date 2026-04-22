@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // 统一错误码/错误映射
 
 use serde::Serialize;

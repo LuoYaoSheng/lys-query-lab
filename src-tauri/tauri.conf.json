@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "QueryLab",
   "version": "0.1.0",
-  "identifier": "luck.good.any.querylab",
+  "identifier": "com.i2kai.querylab",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "QueryLab",
@@ -19,13 +19,9 @@
         "minWidth": 1000,
         "minHeight": 600,
         "resizable": true,
-        "fullscreen": false,
-        "devtools": true
+        "fullscreen": false
       }
-    ],
-    "security": {
-      "csp": "disable"
-    }
+    ]
   },
   "bundle": {
     "active": true,

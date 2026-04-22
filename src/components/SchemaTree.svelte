@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { createEventDispatcher } from 'svelte';
+  import { notifyError, notifyInfo, notifySuccess } from '../lib/notifications';
 
   export let connection = null;
 
@@ -26,6 +27,7 @@
   let showRenameTableDialog = false;
   let showTruncateTableDialog = false;
   let deleteTableName = '';
+  let renameTableDatabase = '';
   let renameTableName = '';
   let renameTableNewName = '';
   let truncateTableName = '';
@@ -183,6 +185,37 @@
     contextMenu = null;
   }
 
+  function closeCreateDbDialog() {
+    showCreateDbDialog = false;
+  }
+
+  function closeDeleteTableDialog() {
+    showDeleteTableDialog = false;
+  }
+
+  function closeRenameTableDialog() {
+    showRenameTableDialog = false;
+    renameTableDatabase = '';
+    renameTableName = '';
+    renameTableNewName = '';
+  }
+
+  function closeTruncateTableDialog() {
+    showTruncateTableDialog = false;
+  }
+
+  function handleOverlayClick(event, close) {
+    if (event.target === event.currentTarget) {
+      close();
+    }
+  }
+
+  function handleOverlayKeydown(event, close) {
+    if (event.key === 'Escape') {
+      close();
+    }
+  }
+
   // 删除表
   async function deleteTable() {
     if (!contextMenu) return;
@@ -201,7 +234,7 @@
       const [db, table] = deleteTableName.split('.');
       const sql = `DROP TABLE \`${db}\`.\`${table}\`;`;
       await invoke('query_execute', { connection, sql, maxRows: 0 });
-      alert('表删除成功！');
+      notifySuccess('表删除成功');
       showDeleteTableDialog = false;
       deleteTableName = '';
       // 刷新表列表
@@ -209,7 +242,7 @@
       tablesData = { ...tablesData };
       await loadTables(db);
     } catch (err) {
-      alert('删除表失败: ' + err);
+      notifyError('删除表失败: ' + err);
     } finally {
       tableOperating = false;
     }
@@ -218,11 +251,12 @@
   // 重命名表
   async function renameTable() {
     if (!contextMenu || contextMenu.isView) {
-      alert('视图不支持重命名');
+      notifyInfo('视图不支持重命名');
       contextMenu = null;
       return;
     }
     const { db, table } = contextMenu;
+    renameTableDatabase = db;
     renameTableName = table;
     renameTableNewName = table;
     showRenameTableDialog = true;
@@ -231,7 +265,7 @@
 
   // 执行重命名表
   async function executeRenameTable() {
-    if (!connection || !renameTableName || !renameTableNewName) return;
+    if (!connection || !renameTableDatabase || !renameTableName || !renameTableNewName) return;
     if (renameTableName === renameTableNewName) {
       showRenameTableDialog = false;
       return;
@@ -239,25 +273,12 @@
 
     tableOperating = true;
     try {
-      // 需要找到这个表所在的数据库
-      let targetDb = null;
-      for (const db of databases) {
-        if (tablesData[db]) {
-          const found = tablesData[db].find(t => t.name === renameTableName);
-          if (found) {
-            targetDb = db;
-            break;
-          }
-        }
-      }
-      if (!targetDb) {
-        alert('找不到表所在的数据库');
-        return;
-      }
+      const targetDb = renameTableDatabase;
       const sql = `RENAME TABLE \`${targetDb}\`.\`${renameTableName}\` TO \`${targetDb}\`.\`${renameTableNewName}\`;`;
       await invoke('query_execute', { connection, sql, maxRows: 0 });
-      alert('表重命名成功！');
+      notifySuccess('表重命名成功');
       showRenameTableDialog = false;
+      renameTableDatabase = '';
       renameTableName = '';
       renameTableNewName = '';
       // 刷新表列表
@@ -265,7 +286,7 @@
       tablesData = { ...tablesData };
       await loadTables(targetDb);
     } catch (err) {
-      alert('重命名表失败: ' + err);
+      notifyError('重命名表失败: ' + err);
     } finally {
       tableOperating = false;
     }
@@ -274,7 +295,7 @@
   // 清空表
   async function truncateTable() {
     if (!contextMenu || contextMenu.isView) {
-      alert('视图不支持清空');
+      notifyInfo('视图不支持清空');
       contextMenu = null;
       return;
     }
@@ -293,11 +314,11 @@
       const [db, table] = truncateTableName.split('.');
       const sql = `TRUNCATE TABLE \`${db}\`.\`${table}\`;`;
       await invoke('query_execute', { connection, sql, maxRows: 0 });
-      alert('表数据已清空！');
+      notifySuccess('表数据已清空');
       showTruncateTableDialog = false;
       truncateTableName = '';
     } catch (err) {
-      alert('清空表失败: ' + err);
+      notifyError('清空表失败: ' + err);
     } finally {
       tableOperating = false;
     }
@@ -316,24 +337,18 @@
   // 创建数据库
   async function createDatabase() {
     if (!newDbName.trim()) {
-      alert('请输入数据库名称');
+      notifyError('请输入数据库名称');
       return;
     }
 
     if (!connection) {
-      alert('请先连接数据库');
+      notifyError('请先连接数据库');
       return;
     }
 
     const dbName = newDbName.trim();
     creating = true;
     try {
-      console.log('Creating database:', {
-        name: dbName,
-        charset: selectedCharset,
-        collation: selectedCollation
-      });
-
       const result = await invoke('meta_create_database', {
         params: {
           connection,
@@ -343,8 +358,7 @@
         }
       });
 
-      console.log('Create result:', result);
-      alert('数据库创建成功！');
+      notifySuccess('数据库创建成功');
 
       // 关闭对话框并重置表单
       showCreateDbDialog = false;
@@ -364,7 +378,7 @@
       await loadTables(dbName);
     } catch (err) {
       console.error('Create database error:', err);
-      alert('创建数据库失败: ' + err);
+      notifyError('创建数据库失败: ' + err);
     } finally {
       creating = false;
     }
@@ -380,6 +394,11 @@
     loadDatabases();
     tablesData = {};
     expandedDbs = new Set();
+  } else {
+    databases = [];
+    tablesData = {};
+    expandedDbs = new Set();
+    error = null;
   }
 
   // 判断是否是视图
@@ -424,14 +443,16 @@
         {@const isLoadingTables = loadingTables.has(db)}
 
         <div class="tree-node">
-          <div
+          <button
+            type="button"
             class="tree-node-header"
             on:click={() => toggleDatabase(db)}
+            aria-expanded={isExpanded}
           >
             <span class="expand-icon">{isExpanded ? '▼' : '▶'}</span>
             <span class="node-icon">📁</span>
             <span class="node-label">{db}</span>
-          </div>
+          </button>
 
           {#if isExpanded}
             <div class="tree-children">
@@ -454,7 +475,8 @@
               {:else}
                 {#each tables as table}
                   {@const tableView = isView(table)}
-                  <div
+                  <button
+                    type="button"
                     class="table-item"
                     class:view={tableView}
                     on:click={(e) => handleTableClick(db, table.name, e)}
@@ -465,7 +487,7 @@
                     {#if table.comment}
                       <span class="table-comment" title={table.comment}>{table.comment}</span>
                     {/if}
-                  </div>
+                  </button>
                 {/each}
               {/if}
             </div>
@@ -478,16 +500,24 @@
 
 <!-- 创建数据库对话框 -->
 {#if showCreateDbDialog}
-  <div class="dialog-overlay" on:click={() => showCreateDbDialog = false}>
-    <div class="dialog" on:click|stopPropagation>
+  <div
+    class="dialog-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭新建数据库对话框"
+    on:click={(e) => handleOverlayClick(e, closeCreateDbDialog)}
+    on:keydown={(e) => handleOverlayKeydown(e, closeCreateDbDialog)}
+  >
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="新建数据库">
       <div class="dialog-header">
         <h3>新建数据库</h3>
-        <button class="dialog-close" on:click={() => showCreateDbDialog = false}>&times;</button>
+        <button class="dialog-close" on:click={closeCreateDbDialog}>&times;</button>
       </div>
       <div class="dialog-body">
         <div class="form-group">
-          <label>数据库名</label>
+          <label for="create-db-name">数据库名</label>
           <input
+            id="create-db-name"
             type="text"
             class="form-input"
             bind:value={newDbName}
@@ -497,16 +527,16 @@
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label>字符集</label>
-            <select class="form-select" bind:value={selectedCharset} on:change={handleCharsetChange}>
+            <label for="create-db-charset">字符集</label>
+            <select id="create-db-charset" class="form-select" bind:value={selectedCharset} on:change={handleCharsetChange}>
               {#each charsets as cs}
                 <option value={cs.value}>{cs.label}</option>
               {/each}
             </select>
           </div>
           <div class="form-group">
-            <label>排序规则</label>
-            <select class="form-select" bind:value={selectedCollation}>
+            <label for="create-db-collation">排序规则</label>
+            <select id="create-db-collation" class="form-select" bind:value={selectedCollation}>
               {#each availableCollations as col}
                 <option value={col.value}>{col.label}</option>
               {/each}
@@ -515,7 +545,7 @@
         </div>
       </div>
       <div class="dialog-footer">
-        <button class="btn btn-secondary" on:click={() => showCreateDbDialog = false}>取消</button>
+        <button class="btn btn-secondary" on:click={closeCreateDbDialog}>取消</button>
         <button class="btn btn-primary" on:click={createDatabase} disabled={creating}>
           {creating ? '创建中...' : '创建'}
         </button>
@@ -528,7 +558,11 @@
 {#if contextMenu}
   <div
     class="context-menu-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭表右键菜单"
     on:click={closeContextMenu}
+    on:keydown={(e) => e.key === 'Escape' && closeContextMenu()}
     style="left: 0; top: 0; right: 0; bottom: 0; position: fixed;"
   >
     <div
@@ -554,18 +588,25 @@
 
 <!-- 删除表确认对话框 -->
 {#if showDeleteTableDialog}
-  <div class="dialog-overlay" on:click={() => showDeleteTableDialog = false}>
-    <div class="dialog" on:click|stopPropagation>
+  <div
+    class="dialog-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭删除表对话框"
+    on:click={(e) => handleOverlayClick(e, closeDeleteTableDialog)}
+    on:keydown={(e) => handleOverlayKeydown(e, closeDeleteTableDialog)}
+  >
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="确认删除表">
       <div class="dialog-header">
         <h3>确认删除表</h3>
-        <button class="dialog-close" on:click={() => showDeleteTableDialog = false}>&times;</button>
+        <button class="dialog-close" on:click={closeDeleteTableDialog}>&times;</button>
       </div>
       <div class="dialog-body">
         <p>确定要删除表 <strong>{deleteTableName}</strong> 吗？</p>
         <p class="confirm-warning">⚠️ 此操作不可撤销！表结构和数据将被永久删除！</p>
       </div>
       <div class="dialog-footer">
-        <button class="btn btn-secondary" on:click={() => showDeleteTableDialog = false} disabled={tableOperating}>取消</button>
+        <button class="btn btn-secondary" on:click={closeDeleteTableDialog} disabled={tableOperating}>取消</button>
         <button class="btn btn-danger" on:click={executeDeleteTable} disabled={tableOperating}>
           {tableOperating ? '删除中...' : '确认删除'}
         </button>
@@ -576,20 +617,28 @@
 
 <!-- 重命名表对话框 -->
 {#if showRenameTableDialog}
-  <div class="dialog-overlay" on:click={() => showRenameTableDialog = false}>
-    <div class="dialog" on:click|stopPropagation>
+  <div
+    class="dialog-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭重命名表对话框"
+    on:click={(e) => handleOverlayClick(e, closeRenameTableDialog)}
+    on:keydown={(e) => handleOverlayKeydown(e, closeRenameTableDialog)}
+  >
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="重命名表">
       <div class="dialog-header">
         <h3>重命名表</h3>
-        <button class="dialog-close" on:click={() => showRenameTableDialog = false}>&times;</button>
+        <button class="dialog-close" on:click={closeRenameTableDialog}>&times;</button>
       </div>
       <div class="dialog-body">
         <div class="form-group">
-          <label>原表名</label>
-          <input type="text" class="form-input" value={renameTableName} disabled />
+          <label for="rename-table-current">原表名</label>
+          <input id="rename-table-current" type="text" class="form-input" value={renameTableName} disabled />
         </div>
         <div class="form-group">
-          <label>新表名</label>
+          <label for="rename-table-next">新表名</label>
           <input
+            id="rename-table-next"
             type="text"
             class="form-input"
             bind:value={renameTableNewName}
@@ -599,7 +648,7 @@
         </div>
       </div>
       <div class="dialog-footer">
-        <button class="btn btn-secondary" on:click={() => showRenameTableDialog = false} disabled={tableOperating}>取消</button>
+        <button class="btn btn-secondary" on:click={closeRenameTableDialog} disabled={tableOperating}>取消</button>
         <button class="btn btn-primary" on:click={executeRenameTable} disabled={tableOperating}>
           {tableOperating ? '重命名中...' : '确认'}
         </button>
@@ -610,18 +659,25 @@
 
 <!-- 清空表确认对话框 -->
 {#if showTruncateTableDialog}
-  <div class="dialog-overlay" on:click={() => showTruncateTableDialog = false}>
-    <div class="dialog" on:click|stopPropagation>
+  <div
+    class="dialog-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭清空表对话框"
+    on:click={(e) => handleOverlayClick(e, closeTruncateTableDialog)}
+    on:keydown={(e) => handleOverlayKeydown(e, closeTruncateTableDialog)}
+  >
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="确认清空表">
       <div class="dialog-header">
         <h3>确认清空表</h3>
-        <button class="dialog-close" on:click={() => showTruncateTableDialog = false}>&times;</button>
+        <button class="dialog-close" on:click={closeTruncateTableDialog}>&times;</button>
       </div>
       <div class="dialog-body">
         <p>确定要清空表 <strong>{truncateTableName}</strong> 的所有数据吗？</p>
         <p class="confirm-warning">⚠️ 此操作不可撤销！所有数据将被永久删除！</p>
       </div>
       <div class="dialog-footer">
-        <button class="btn btn-secondary" on:click={() => showTruncateTableDialog = false} disabled={tableOperating}>取消</button>
+        <button class="btn btn-secondary" on:click={closeTruncateTableDialog} disabled={tableOperating}>取消</button>
         <button class="btn btn-danger" on:click={executeTruncateTable} disabled={tableOperating}>
           {tableOperating ? '清空中...' : '确认清空'}
         </button>
@@ -685,6 +741,12 @@
     padding: 4px 16px;
     cursor: pointer;
     font-size: 13px;
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
 
   .tree-node-header:hover {
@@ -751,6 +813,12 @@
     padding: 4px 16px 4px 32px;
     cursor: pointer;
     font-size: 13px;
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
 
   .table-item:hover {

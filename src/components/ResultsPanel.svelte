@@ -7,6 +7,7 @@
   export let error = null;
   export let connection = null;  // 需要连接信息用于更新
   export let tableName = '';      // 当前查询的表名
+  export let editableTableName = '';
   export let onRefresh = () => {}; // 刷新回调
 
   // 编辑状态
@@ -15,25 +16,75 @@
   let updateMessage = null;
   let activeSetIndex = 0;
   let exportLoading = false;
+  let tableSchema = null;
+  let schemaKey = '';
+  let lastQueryId = '';
 
   $: activeSet = result?.sets[activeSetIndex] || null;
   $: totalSets = result?.sets.length || 0;
   $: canExport = activeSet && activeSet.columns.length > 0 && getAllRows().length > 0;
-
-  // 获取主键列（假设第一列是主键，或者名为 id 的列）
+  $: primaryKeyName = getPrimaryKeyName();
   $: primaryKeyColumn = getPrimaryKeyColumn();
 
+  $: {
+    const nextSchemaKey = connection && editableTableName
+      ? `${connection.id || connection.host || 'connection'}:${editableTableName}`
+      : '';
+
+    if (nextSchemaKey !== schemaKey) {
+      schemaKey = nextSchemaKey;
+      tableSchema = null;
+      if (nextSchemaKey) {
+        loadTableSchema();
+      }
+    }
+  }
+
+  $: {
+    if (result?.queryId && result.queryId !== lastQueryId) {
+      lastQueryId = result.queryId;
+      activeSetIndex = 0;
+      editingCell = null;
+      updateMessage = null;
+    } else if (!result) {
+      lastQueryId = '';
+      activeSetIndex = 0;
+      editingCell = null;
+      updateMessage = null;
+    }
+  }
+
+  async function loadTableSchema() {
+    if (!connection || !editableTableName) {
+      tableSchema = null;
+      return;
+    }
+
+    try {
+      const [database, table] = editableTableName.split('.');
+      tableSchema = await invoke('meta_get_table_schema', {
+        connection,
+        database,
+        table,
+      });
+    } catch (err) {
+      console.error('Failed to load editable schema:', err);
+      tableSchema = null;
+    }
+  }
+
+  function getPrimaryKeyName() {
+    const primaryIndex = tableSchema?.indexes?.find((index) => index.name === 'PRIMARY');
+    if (!primaryIndex || primaryIndex.columns.length !== 1) {
+      return null;
+    }
+    return primaryIndex.columns[0];
+  }
+
   function getPrimaryKeyColumn() {
-    if (!activeSet || !activeSet.columns) return null;
-    // 优先查找名为 id 的列
-    const idCol = activeSet.columns.findIndex(c =>
-      c.name.toLowerCase() === 'id' ||
-      c.name.toLowerCase() === '_id' ||
-      c.name.endsWith('_id')
-    );
-    if (idCol >= 0) return idCol;
-    // 否则使用第一列
-    return 0;
+    if (!activeSet || !activeSet.columns || !primaryKeyName) return null;
+    const index = activeSet.columns.findIndex((column) => column.name === primaryKeyName);
+    return index >= 0 ? index : null;
   }
 
   // 判断值的类型
@@ -62,7 +113,7 @@
 
   // 开始编辑单元格
   function startEdit(rowIndex, colIndex, currentValue) {
-    if (!connection || !tableName) return;
+    if (!isEditable()) return;
     if (colIndex === primaryKeyColumn) return; // 不允许编辑主键
 
     editingCell = {
@@ -94,9 +145,9 @@
       const result = await invoke('query_update_cell', {
         params: {
           connection,
-          table: tableName,
+          table: editableTableName,
           column: columnName,
-          primary_key: activeSet.columns[primaryKeyColumn].name,
+          primary_key: primaryKeyName,
           primary_key_value: primaryKeyValue,
           new_value: editingCell.value,
           is_null: editingCell.isNull
@@ -143,7 +194,14 @@
 
   // 检查是否可编辑
   function isEditable() {
-    return connection && tableName && activeSet && activeSet.columns.length > 0;
+    return Boolean(
+      connection &&
+      editableTableName &&
+      activeSet &&
+      activeSet.columns.length > 0 &&
+      primaryKeyName &&
+      primaryKeyColumn !== null
+    );
   }
 
   // 导出为 CSV
@@ -263,14 +321,15 @@
       <div class="results-left">
         <div class="results-tabs">
           {#each result.sets as set, idx}
-            <div
+            <button
+              type="button"
               class="result-tab"
               class:active={idx === activeSetIndex}
               on:click={() => activeSetIndex = idx}
             >
               结果 {idx + 1}
               <span class="rows-count">({set.meta.affectedRows} 行)</span>
-            </div>
+            </button>
           {/each}
         </div>
         {#if canExport}
@@ -349,7 +408,6 @@
                               bind:value={editingCell.value}
                               on:keydown={handleKeydown}
                               disabled={updateLoading}
-                              autofocus
                               class:is-null={editingCell.isNull}
                             />
                             <div class="cell-editor-actions">
@@ -481,7 +539,10 @@
     gap: 4px;
     padding: 6px 12px;
     background: #3e3e3e;
+    border: none;
     border-radius: 4px 4px 0 0;
+    color: inherit;
+    font: inherit;
     font-size: 12px;
     cursor: pointer;
   }

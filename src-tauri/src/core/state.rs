@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // 全局状态管理 - 连接池、会话、任务管理
 
 use std::sync::Arc;

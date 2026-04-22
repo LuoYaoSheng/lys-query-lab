@@ -1,38 +1,57 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
+  import { confirmAction, notifyError, notifySuccess } from '../lib/notifications';
 
   export let connections = [];
   export let selectedConnection = null;
   export let onConnect = () => {};
 
   let showForm = false;
-  let testingConnection = false;
+  let testingConnection = '';
   let savingConnection = false;
   let testResult = null;
+  let editingConnection = false;
 
   // 表单数据
   let formData = {
     id: '',
     name: '',
     driver: 'mysql',
-    host: 'localhost',
-    port: 33306,
-    user: 'root',
-    password: 'root123456',
+    host: '',
+    port: 3306,
+    user: '',
+    password: '',
     defaultDb: ''
   };
 
   function openNewForm() {
     testResult = null;
+    editingConnection = false;
     formData = {
       id: '',
       name: '',
       driver: 'mysql',
-      host: 'localhost',
-      port: 33306,
-      user: 'root',
-      password: 'root123456',
+      host: '',
+      port: 3306,
+      user: '',
+      password: '',
       defaultDb: ''
+    };
+    showForm = true;
+  }
+
+  function openEditForm(conn) {
+    testResult = null;
+    editingConnection = true;
+    formData = {
+      id: conn.id || '',
+      name: conn.name || '',
+      driver: conn.driver || conn.driver_type || 'mysql',
+      host: conn.host || '',
+      port: conn.port || 3306,
+      user: conn.user || '',
+      password: conn.password || '',
+      defaultDb: conn.defaultDb || conn.default_db || ''
     };
     showForm = true;
   }
@@ -42,7 +61,6 @@
     testResult = null;
     try {
       const id = await invoke('conn_upsert', { connection: formData });
-      console.log('Connection saved:', id);
       connections = await invoke('conn_list');
       showForm = false;
     } catch (err) {
@@ -54,7 +72,7 @@
   }
 
   async function testConnection(conn) {
-    testingConnection = true;
+    testingConnection = conn.id || '__test__';
     testResult = null;
     try {
       const result = await invoke('conn_test', { connection: conn });
@@ -66,13 +84,38 @@
       console.error('Test error:', err);
       testResult = { success: false, message: '连接失败: ' + err };
     } finally {
-      testingConnection = false;
+      testingConnection = '';
     }
   }
 
   async function testFormConnection() {
     const testConn = { ...formData, id: '__test__' };
     await testConnection(testConn);
+  }
+
+  async function deleteConnection(conn) {
+    const confirmed = await confirmAction({
+      title: '删除连接',
+      message: `确定要删除连接 “${conn.name || conn.host}” 吗？`,
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+
+    testResult = null;
+    try {
+      await invoke('conn_delete', { id: conn.id });
+      connections = await invoke('conn_list');
+      if (selectedConnection?.id === conn.id) {
+        selectedConnection = null;
+        onConnect(null);
+      }
+      notifySuccess('连接已删除');
+    } catch (err) {
+      console.error('Delete error:', err);
+      notifyError('删除失败: ' + err);
+    }
   }
 
   function selectConnection(conn) {
@@ -83,6 +126,19 @@
   function closeForm() {
     showForm = false;
     testResult = null;
+    editingConnection = false;
+  }
+
+  function handleOverlayClick(event) {
+    if (event.target === event.currentTarget) {
+      closeForm();
+    }
+  }
+
+  function handleOverlayKeydown(event) {
+    if (event.key === 'Escape') {
+      closeForm();
+    }
   }
 </script>
 
@@ -92,6 +148,12 @@
     <button class="btn-icon" on:click={openNewForm} title="新建连接">+</button>
   </div>
 
+  {#if testResult && !showForm}
+    <div class="test-result" class:success={testResult.success} class:error={!testResult.success}>
+      <pre>{testResult.message}</pre>
+    </div>
+  {/if}
+
   <div class="connection-list">
     {#each connections as conn}
       <div
@@ -99,11 +161,18 @@
         class:connected={selectedConnection?.id === conn.id}
         class:testing={testingConnection === conn.id}
       >
-        <div class="conn-info" on:click={() => selectConnection(conn)}>
+        <button type="button" class="conn-info" on:click={() => selectConnection(conn)}>
           <span class="conn-name">{conn.name || conn.host}</span>
           <span class="conn-host">{conn.host}:{conn.port}</span>
-        </div>
+        </button>
         <div class="conn-actions">
+          <button
+            class="btn-icon"
+            on:click|stopPropagation={() => openEditForm(conn)}
+            title="编辑连接"
+          >
+            ✎
+          </button>
           <button
             class="btn-icon"
             on:click|stopPropagation={() => testConnection(conn)}
@@ -111,6 +180,13 @@
             disabled={testingConnection === conn.id}
           >
             {testingConnection === conn.id ? '...' : '⚡'}
+          </button>
+          <button
+            class="btn-icon btn-danger"
+            on:click|stopPropagation={() => deleteConnection(conn)}
+            title="删除连接"
+          >
+            ✕
           </button>
         </div>
       </div>
@@ -120,9 +196,16 @@
   </div>
 
   {#if showForm}
-    <div class="connection-form-overlay" on:click={closeForm}>
-      <div class="connection-form" on:click|stopPropagation>
-        <h3>新建连接</h3>
+    <div
+      class="connection-form-overlay"
+      role="button"
+      tabindex="0"
+      aria-label="关闭连接表单"
+      on:click={handleOverlayClick}
+      on:keydown={handleOverlayKeydown}
+    >
+      <div class="connection-form" role="dialog" aria-modal="true" aria-label={editingConnection ? '编辑连接' : '新建连接'}>
+        <h3>{editingConnection ? '编辑连接' : '新建连接'}</h3>
 
         {#if testResult}
           <div class="test-result" class:success={testResult.success} class:error={!testResult.success}>
@@ -133,7 +216,7 @@
         <form on:submit|preventDefault={saveConnection}>
           <label>
             <span>连接名称</span>
-            <input type="text" bind:value={formData.name} placeholder="HUB MySQL" required />
+            <input type="text" bind:value={formData.name} placeholder="例如：生产 MySQL" required />
           </label>
           <label>
             <span>主机</span>
@@ -216,6 +299,12 @@
   .conn-info {
     flex: 1;
     cursor: pointer;
+    background: transparent;
+    border: none;
+    padding: 0;
+    text-align: left;
+    color: inherit;
+    font: inherit;
   }
 
   .conn-name {
@@ -257,6 +346,14 @@
   .btn-icon:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .btn-danger {
+    color: #f48771;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #4a2a2a;
   }
 
   .empty-state {

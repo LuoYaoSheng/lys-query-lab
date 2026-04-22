@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // Database driver abstraction - 为多数据库准备
 
 use async_trait::async_trait;
@@ -59,6 +61,7 @@ pub struct ConnectionInfo {
     pub host: String,
     pub port: u16,
     pub user: String,
+    #[serde(default, skip_serializing)]
     pub password: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "defaultDb")]
@@ -126,8 +129,6 @@ pub enum DbError {
 
 // MySQL driver placeholder
 pub mod mysql {
-    use super::*;
-
     pub struct MySQLDriver;
 
     impl MySQLDriver {

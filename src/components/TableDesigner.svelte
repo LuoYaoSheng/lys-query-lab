@@ -1,5 +1,6 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
+  import { notifySuccess } from '../lib/notifications';
 
   export let connection = null;
   export let tableName = '';
@@ -12,14 +13,18 @@
   let newTableName = '';
 
   // 表结构数据
-  let columns = [];
-  let indexes = [];
-  let tableInfo = {
+  const DEFAULT_TABLE_INFO = {
     engine: 'InnoDB',
     charset: 'utf8mb4',
     collation: 'utf8mb4_unicode_ci',
     comment: ''
   };
+
+  let columns = [];
+  let originalColumns = [];
+  let indexes = [];
+  let tableInfo = { ...DEFAULT_TABLE_INFO };
+  let originalTableInfo = { ...DEFAULT_TABLE_INFO };
 
   // 状态
   let loading = false;
@@ -30,14 +35,11 @@
   // 重置为新建表模式
   function resetToNewTableMode() {
     columns = []; // 暂时为空，让用户手动添加列
+    originalColumns = [];
     indexes = [];
     newTableName = '';
-    tableInfo = {
-      engine: 'InnoDB',
-      charset: 'utf8mb4',
-      collation: 'utf8mb4_unicode_ci',
-      comment: ''
-    };
+    tableInfo = { ...DEFAULT_TABLE_INFO };
+    originalTableInfo = { ...DEFAULT_TABLE_INFO };
     hasChanges = false;
     error = null;
   }
@@ -45,14 +47,11 @@
   // 重置为编辑模式
   function resetToEditMode() {
     columns = [];
+    originalColumns = [];
     indexes = [];
     newTableName = '';
-    tableInfo = {
-      engine: 'InnoDB',
-      charset: 'utf8mb4',
-      collation: 'utf8mb4_unicode_ci',
-      comment: ''
-    };
+    tableInfo = { ...DEFAULT_TABLE_INFO };
+    originalTableInfo = { ...DEFAULT_TABLE_INFO };
     hasChanges = false;
     error = null;
   }
@@ -63,15 +62,9 @@
   // 监听模式变化
   $: {
     const currentMode = isCreatingNewTable ? 'new' : (tableName ? 'edit' : 'none');
-    console.log('=== Mode check ===');
-    console.log('isCreatingNewTable:', isCreatingNewTable);
-    console.log('tableName:', tableName);
-    console.log('currentMode:', currentMode);
-    console.log('lastMode:', lastMode);
 
     if (currentMode !== lastMode) {
       lastMode = currentMode;
-      console.log('Mode changed, resetting...');
       if (currentMode === 'new') {
         resetToNewTableMode();
       } else if (currentMode === 'edit') {
@@ -98,6 +91,10 @@
     'latin1_swedish_ci', 'gbk_chinese_ci', 'big5_chinese_ci'
   ];
 
+  function cloneColumn(column) {
+    return { ...column };
+  }
+
   // 加载表结构
   async function loadTableSchema() {
     if (!connection || !tableName) return;
@@ -117,20 +114,13 @@
         table
       });
 
-      // 调试日志
-      console.log('=== DEBUG: loadTableSchema ===');
-      console.log('Schema:', schema);
-      console.log('Columns:', schema.columns);
-      console.log('Indexes:', schema.indexes);
-
       // 转换列信息为编辑格式
       columns = schema.columns.map((col, idx) => {
-        console.log(`Column ${idx}:`, col);
         // Rust serde rename: column_type -> type
         const colType = col.type || col.column_type || 'VARCHAR';
-        console.log(`  - type: ${colType}, extra: ${col.extra}, nullable: ${col.nullable}`);
         return {
           id: idx,
+          originalName: col.name,
           name: col.name,
           type: colType,
           length: extractLength(colType),
@@ -143,28 +133,25 @@
         };
       });
 
-      console.log('Mapped columns:', columns);
-
       // 从索引中获取主键信息
       if (schema.indexes) {
         const pkIndex = schema.indexes.find(idx => idx.name === 'PRIMARY');
-        console.log('Primary key index:', pkIndex);
         if (pkIndex) {
           pkIndex.columns.forEach(pkCol => {
             const col = columns.find(c => c.name === pkCol);
-            console.log(`Setting primary key for ${pkCol}:`, col);
             if (col) col.primaryKey = true;
           });
         }
         indexes = schema.indexes;
       }
 
-      console.log('Final columns after PK set:', columns);
-
       // 获取表信息
-      if (schema.create_sql) {
-        tableInfo = extractTableInfo(schema.create_sql) || tableInfo;
-      }
+      const nextTableInfo = schema.create_sql
+        ? (extractTableInfo(schema.create_sql) || { ...DEFAULT_TABLE_INFO })
+        : { ...DEFAULT_TABLE_INFO };
+      tableInfo = nextTableInfo;
+      originalColumns = columns.map(cloneColumn);
+      originalTableInfo = { ...nextTableInfo };
 
       hasChanges = false;
     } catch (err) {
@@ -209,7 +196,8 @@
       autoIncrement: false,
       defaultValue: '',
       comment: '',
-      isOriginal: false
+      isOriginal: false,
+      originalName: null
     }];
     hasChanges = true;
   }
@@ -252,10 +240,6 @@
 
   // 保存表结构
   async function saveSchema() {
-    console.log('=== saveSchema called ===');
-    console.log('isCreatingNewTable:', isCreatingNewTable);
-    console.log('columns:', columns);
-
     saving = true;
     error = null;
 
@@ -286,18 +270,6 @@
           comment: col.comment || ''
         }));
 
-        console.log('=== Frontend: Sending column data ===');
-        console.log('columnDefs:', JSON.stringify(columnDefs, null, 2));
-        console.log('Full params being sent:', JSON.stringify({
-          database: targetDatabase,
-          table: newTableName.trim(),
-          columns: columnDefs,
-          engine: tableInfo.engine,
-          charset: tableInfo.charset,
-          collation: tableInfo.collation,
-          comment: tableInfo.comment
-        }, null, 2));
-
         const result = await invoke('meta_create_table', {
           params: {
             connection,
@@ -311,14 +283,18 @@
           }
         });
 
-        alert(result);
+        notifySuccess(result);
         onRefresh();
       } else {
         // 编辑现有表模式
-        const [database, table] = tableName.split('.');
-
         // 生成 ALTER TABLE SQL
         const sqlStatements = generateAlterSQL();
+
+        if (sqlStatements.length === 0) {
+          hasChanges = false;
+          notifySuccess('没有需要保存的结构变更');
+          return;
+        }
 
         for (const sql of sqlStatements) {
           await invoke('query_execute', {
@@ -328,9 +304,16 @@
           });
         }
 
+        columns = columns.map((col) => ({
+          ...col,
+          isOriginal: true,
+          originalName: col.name
+        }));
+        originalColumns = columns.map(cloneColumn);
+        originalTableInfo = { ...tableInfo };
         hasChanges = false;
         onRefresh();
-        alert('表结构保存成功！');
+        notifySuccess('表结构保存成功');
       }
     } catch (err) {
       error = '保存失败: ' + err;
@@ -366,107 +349,116 @@
     const [database, table] = tableName.split('.');
     const statements = [];
 
-    // 找出被删除的列
-    const originalCols = columns.filter(c => c.isOriginal);
-    const deletedCols = [];
-
-    for (const col of columns.filter(c => c.isOriginal)) {
-      if (!originalCols.find(oc => oc.name === col.name)) {
-        deletedCols.push(col.name);
-      }
-    }
-
-    // 找出新增的列
-    const newCols = columns.filter(c => !c.isOriginal);
-
-    // 找出修改的列
-    const modifiedCols = columns.filter(c => {
-      if (!c.isOriginal) return false;
-      // 这里需要比较原始值和当前值
-      return true; // 简化处理，实际需要比较
+    const currentOriginalNames = new Set(
+      columns
+        .filter((col) => col.isOriginal)
+        .map((col) => col.originalName || col.name)
+    );
+    const originalByName = new Map(
+      originalColumns.map((col) => [col.originalName || col.name, col])
+    );
+    const deletedCols = originalColumns.filter(
+      (col) => !currentOriginalNames.has(col.originalName || col.name)
+    );
+    const newCols = columns.filter((col) => !col.isOriginal);
+    const modifiedCols = columns.filter((col) => {
+      if (!col.isOriginal) return false;
+      const originalCol = originalByName.get(col.originalName || col.name);
+      return !columnsEqual(col, originalCol);
     });
 
-    // 生成 DROP COLUMN
-    for (const colName of deletedCols) {
-      statements.push(`ALTER TABLE \`${database}\`.\`${table}\` DROP COLUMN \`${colName}\`;`);
+    const originalPrimaryKey = originalColumns.find((col) => col.primaryKey)?.originalName
+      || originalColumns.find((col) => col.primaryKey)?.name
+      || '';
+    const currentPrimaryKey = columns.find((col) => col.primaryKey)?.name || '';
+    const primaryKeyChanged = originalPrimaryKey !== currentPrimaryKey;
+    let primaryKeyHandled = false;
+
+    if (primaryKeyChanged && originalPrimaryKey) {
+      statements.push(`ALTER TABLE \`${database}\`.\`${table}\` DROP PRIMARY KEY;`);
     }
 
-    // 生成 ADD COLUMN（注意：向已有表添加 AUTO_INCREMENT 列有限制）
+    for (const col of deletedCols) {
+      statements.push(`ALTER TABLE \`${database}\`.\`${table}\` DROP COLUMN \`${col.name}\`;`);
+    }
+
     for (const col of newCols) {
-      if (col.autoIncrement) {
-        // 添加 AUTO_INCREMENT 列需要特殊处理
-        // 先检查是否是主键
-        if (col.primaryKey) {
-          statements.push(`ALTER TABLE \`${database}\`.\`${table}\` ADD COLUMN \`${col.name}\` ${getTypeString(col)} NOT NULL PRIMARY KEY AUTO_INCREMENT${col.comment ? ` COMMENT '${col.comment}'` : ''};`);
-        } else {
-          throw new Error('添加自增列必须同时设置为主键');
-        }
-      } else {
-        statements.push(generateAddColumnSQL(database, table, col));
+      const clauses = [`ADD COLUMN ${buildColumnDefinition(col)}`];
+      if (col.primaryKey && primaryKeyChanged) {
+        clauses.push(`ADD PRIMARY KEY (\`${col.name}\`)`);
+        primaryKeyHandled = true;
       }
+      statements.push(`ALTER TABLE \`${database}\`.\`${table}\` ${clauses.join(', ')};`);
     }
 
-    // 生成 MODIFY COLUMN
     for (const col of modifiedCols) {
-      statements.push(generateModifyColumnSQL(database, table, col));
+      const originalCol = originalByName.get(col.originalName || col.name);
+      const columnClause = originalCol && originalCol.name !== col.name
+        ? `CHANGE COLUMN \`${originalCol.name}\` ${buildColumnDefinition(col)}`
+        : `MODIFY COLUMN ${buildColumnDefinition(col)}`;
+
+      const clauses = [columnClause];
+      if (col.primaryKey && primaryKeyChanged && !primaryKeyHandled) {
+        clauses.push(`ADD PRIMARY KEY (\`${col.name}\`)`);
+        primaryKeyHandled = true;
+      }
+
+      statements.push(`ALTER TABLE \`${database}\`.\`${table}\` ${clauses.join(', ')};`);
+    }
+
+    if (currentPrimaryKey && primaryKeyChanged && !primaryKeyHandled) {
+      statements.push(`ALTER TABLE \`${database}\`.\`${table}\` ADD PRIMARY KEY (\`${currentPrimaryKey}\`);`);
+    }
+
+    if (!tableInfoEquals(tableInfo, originalTableInfo)) {
+      statements.push(generateTableOptionsSQL(database, table));
     }
 
     return statements;
   }
 
-  // 生成添加列的 SQL
-  function generateAddColumnSQL(database, table, col) {
-    let sql = `ALTER TABLE \`${database}\`.\`${table}\` ADD COLUMN \`${col.name}\` ${getTypeString(col)}`;
-    if (!col.nullable) sql += ' NOT NULL';
-    if (col.defaultValue) sql += ` DEFAULT ${quoteValue(col.defaultValue)}`;
-    // 自增列必须是主键，需要内联定义
-    if (col.autoIncrement && col.primaryKey) {
-      sql += ' PRIMARY KEY AUTO_INCREMENT';
-    } else if (col.autoIncrement) {
-      sql += ' AUTO_INCREMENT';
-    }
-    if (!col.autoIncrement && col.primaryKey) sql += ', ADD PRIMARY KEY (`' + col.name + '`)';
-    if (col.comment) sql += ` COMMENT '${col.comment}'`;
-    return sql + ';';
+  function columnsEqual(current, original) {
+    if (!original) return false;
+    return (
+      current.name === original.name &&
+      current.type === original.type &&
+      (current.length || '') === (original.length || '') &&
+      current.nullable === original.nullable &&
+      current.primaryKey === original.primaryKey &&
+      current.autoIncrement === original.autoIncrement &&
+      (current.defaultValue || '') === (original.defaultValue || '') &&
+      (current.comment || '') === (original.comment || '')
+    );
   }
 
-  // 生成修改列的 SQL
-  function generateModifyColumnSQL(database, table, col) {
-    const hasPrimaryKey = indexes && indexes.some(idx => idx.name === 'PRIMARY');
+  function tableInfoEquals(current, original) {
+    return (
+      (current.engine || '') === (original?.engine || '') &&
+      (current.charset || '') === (original?.charset || '') &&
+      (current.collation || '') === (original?.collation || '') &&
+      (current.comment || '') === (original?.comment || '')
+    );
+  }
 
-    console.log(`generateModifyColumnSQL: col=${col.name}, autoInc=${col.autoIncrement}, pk=${col.primaryKey}, hasPK=${hasPrimaryKey}`);
-
-    let sql = `ALTER TABLE \`${database}\`.\`${table}\` MODIFY COLUMN \`${col.name}\` ${getTypeString(col)}`;
-    if (!col.nullable) sql += ' NOT NULL';
+  function buildColumnDefinition(col) {
+    let sql = `\`${col.name}\` ${getTypeString(col)}`;
+    if (!col.nullable || col.primaryKey || col.autoIncrement) sql += ' NOT NULL';
     if (col.defaultValue) sql += ` DEFAULT ${quoteValue(col.defaultValue)}`;
+    if (col.autoIncrement) sql += ' AUTO_INCREMENT';
+    if (col.comment) sql += ` COMMENT '${col.comment.replace(/'/g, "''")}'`;
+    return sql;
+  }
 
-    // 如果要添加新的主键，且表已有主键，需要先删除
-    if ((col.autoIncrement || col.primaryKey) && hasPrimaryKey) {
-      sql = `ALTER TABLE \`${database}\`.\`${table}\` DROP PRIMARY KEY, MODIFY COLUMN \`${col.name}\` ${getTypeString(col)}`;
-      if (!col.nullable) sql += ' NOT NULL';
-      if (col.defaultValue) sql += ` DEFAULT ${quoteValue(col.defaultValue)}`;
-    }
-
-    // 处理自增列：需要和主键一起定义
-    if (col.autoIncrement) {
-      sql += ' AUTO_INCREMENT';
-    }
-
-    // 添加主键
-    if (col.primaryKey) {
-      sql += ', ADD PRIMARY KEY (`' + col.name + '`)';
-    }
-
-    if (col.comment) sql += ` COMMENT '${col.comment}'`;
-    console.log('Generated SQL:', sql);
-
-    return sql + ';';
+  function generateTableOptionsSQL(database, table) {
+    const comment = tableInfo.comment ? tableInfo.comment.replace(/'/g, "''") : '';
+    return `ALTER TABLE \`${database}\`.\`${table}\` ENGINE=${tableInfo.engine}, DEFAULT CHARACTER SET=${tableInfo.charset}, COLLATE=${tableInfo.collation}, COMMENT='${comment}';`;
   }
 
   // 引用值
   function quoteValue(value) {
     if (!value) return "''";
     if (value === 'NULL') return 'NULL';
+    if (/^CURRENT_TIMESTAMP(?:\(\))?$/i.test(value)) return value.toUpperCase();
     if (!isNaN(value)) return value;
     return `'${value.replace(/'/g, "''")}'`;
   }
@@ -669,8 +661,8 @@
 
         <div class="options-grid">
           <div class="option-item">
-            <label>存储引擎</label>
-            <select bind:value={tableInfo.engine}>
+            <label for="table-engine">存储引擎</label>
+            <select id="table-engine" bind:value={tableInfo.engine} on:change={() => hasChanges = true}>
               {#each storageEngines as engine}
                 <option value={engine}>{engine}</option>
               {/each}
@@ -678,8 +670,8 @@
           </div>
 
           <div class="option-item">
-            <label>字符集</label>
-            <select bind:value={tableInfo.charset}>
+            <label for="table-charset">字符集</label>
+            <select id="table-charset" bind:value={tableInfo.charset} on:change={() => hasChanges = true}>
               {#each charsets as charset}
                 <option value={charset}>{charset}</option>
               {/each}
@@ -687,8 +679,8 @@
           </div>
 
           <div class="option-item">
-            <label>排序规则</label>
-            <select bind:value={tableInfo.collation}>
+            <label for="table-collation">排序规则</label>
+            <select id="table-collation" bind:value={tableInfo.collation} on:change={() => hasChanges = true}>
               {#each collations as collation}
                 <option value={collation}>{collation}</option>
               {/each}
@@ -696,12 +688,14 @@
           </div>
 
           <div class="option-item">
-            <label>表注释</label>
+            <label for="table-comment">表注释</label>
             <input
+              id="table-comment"
               type="text"
               class="input-table-comment"
               bind:value={tableInfo.comment}
               placeholder="表注释"
+              on:input={() => hasChanges = true}
             />
           </div>
         </div>

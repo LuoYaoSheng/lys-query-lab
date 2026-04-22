@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { createEventDispatcher } from 'svelte';
+  import { confirmAction, notifyError, notifyInfo, notifySuccess } from '../lib/notifications';
 
   export let connection = null;
   export let databases = [];
@@ -10,7 +11,7 @@
   // 同步配置
   let sourceDatabase = '';
   let targetDatabase = '';
-  let syncMode = 'structure'; // 'structure' | 'data' | 'both'
+  let syncMode = 'structure'; // 当前仅支持结构对比与结构 SQL 预演
 
   // 同步结果
   let comparing = false;
@@ -33,12 +34,12 @@
   // 开始比较
   async function startCompare() {
     if (!sourceDatabase || !targetDatabase) {
-      alert('请选择源数据库和目标数据库');
+      notifyError('请选择源数据库和目标数据库');
       return;
     }
 
     if (sourceDatabase === targetDatabase) {
-      alert('源数据库和目标数据库不能相同');
+      notifyError('源数据库和目标数据库不能相同');
       return;
     }
 
@@ -253,12 +254,6 @@
           }
         }
 
-        // 数据同步
-        if (syncMode === 'data' || syncMode === 'both') {
-          sql += `-- 同步表 ${diff.table} 的数据\n`;
-          sql += `-- 注意：此操作会覆盖目标表的数据\n`;
-          sql += `-- 建议先备份数据\n\n`;
-        }
       }
     }
 
@@ -269,11 +264,19 @@
   async function executeSync() {
     const sql = generateSyncSQL();
     if (!sql) {
-      alert('没有选中的表或没有需要同步的内容');
+      notifyInfo('没有选中的表或没有需要同步的内容');
       return;
     }
 
-    if (!confirm('确定要执行同步操作吗？此操作不可撤销！\n\n建议先备份数据库。')) {
+    const confirmed = await confirmAction({
+      title: '确认执行结构变更',
+      message: '此操作会直接修改目标数据库结构，且不可撤销。建议先完成 SQL 备份。',
+      confirmLabel: '执行变更',
+      cancelLabel: '取消',
+      tone: 'danger',
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -299,10 +302,10 @@
         });
       }
 
-      alert('同步完成！');
+      notifySuccess('结构变更已执行完成');
       dispatch('syncComplete');
     } catch (err) {
-      alert('同步失败: ' + err);
+      notifyError('结构变更执行失败: ' + err);
     } finally {
       syncing = false;
     }
@@ -314,9 +317,9 @@
     if (!sql) return;
 
     navigator.clipboard.writeText(sql).then(() => {
-      alert('SQL 已复制到剪贴板');
+      notifySuccess('SQL 已复制到剪贴板');
     }).catch(err => {
-      alert('复制失败: ' + err);
+      notifyError('复制失败: ' + err);
     });
   }
 
@@ -409,17 +412,21 @@
 
 <div class="datasync-container">
   <div class="datasync-header">
-    <h2>数据同步</h2>
+    <h2>结构对比</h2>
     <button class="btn-close" on:click={() => dispatch('close')}>&times;</button>
   </div>
 
   <div class="datasync-body">
     <!-- 配置区域 -->
     <div class="sync-config">
+      <div class="mode-note">
+        当前页面用于比较两个数据库的表结构差异，并生成/执行结构变更 SQL。
+        暂不提供真实数据同步。
+      </div>
       <div class="config-row">
         <div class="config-item">
-          <label>源数据库</label>
-          <select bind:value={sourceDatabase}>
+          <label for="sync-source-database">源数据库</label>
+          <select id="sync-source-database" bind:value={sourceDatabase}>
             <option value="">-- 选择数据库 --</option>
             {#each databases as db}
               <option value={db}>{db}</option>
@@ -430,8 +437,8 @@
         <div class="config-arrow">→</div>
 
         <div class="config-item">
-          <label>目标数据库</label>
-          <select bind:value={targetDatabase}>
+          <label for="sync-target-database">目标数据库</label>
+          <select id="sync-target-database" bind:value={targetDatabase}>
             <option value="">-- 选择数据库 --</option>
             {#each databases as db}
               <option value={db}>{db}</option>
@@ -440,11 +447,9 @@
         </div>
 
         <div class="config-item">
-          <label>同步模式</label>
-          <select bind:value={syncMode}>
-            <option value="structure">仅结构</option>
-            <option value="data">仅数据</option>
-            <option value="both">结构 + 数据</option>
+          <label for="sync-mode">同步模式</label>
+          <select id="sync-mode" bind:value={syncMode} disabled>
+            <option value="structure">仅结构（当前支持）</option>
           </select>
         </div>
 
@@ -508,7 +513,7 @@
 
           <div class="diff-items">
             {#if tableDifferences.length === 0}
-              <div class="diff-empty">没有发现差异，两个数据库结构相同</div>
+              <div class="diff-empty">没有发现结构差异，两个数据库结构相同</div>
             {:else}
               {#each tableDifferences as diff}
                 {@const isSelected = selectedTables.has(diff.table)}
@@ -1213,10 +1218,6 @@ ALTER TABLE `{targetDatabase}`.`{detailData.table}`
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-all;
-  }
-
-  .sql-preview code {
-    color: #4ec9b0;
   }
 
   @media (max-width: 900px) {

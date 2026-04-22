@@ -60,14 +60,14 @@ pub async fn query_update_cell(params: UpdateCellParams) -> Result<UpdateCellRes
 
     let sql = format!(
         "UPDATE `{}` SET {} WHERE `{}` = {} LIMIT 1",
-        params.table,
+        format_table_ident(&params.table),
         set_clause,
         params.primary_key,
         quote_value(&params.primary_key_value)
     );
 
     // 执行更新
-    let result = conn.query_drop(&sql).await
+    conn.query_drop(&sql).await
         .map_err(|e| format!("更新失败: {}", e))?;
 
     let affected_rows = conn.affected_rows();
@@ -90,6 +90,15 @@ fn quote_value(value: &str) -> String {
     }
     // 否则用单引号包裹并转义
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
+}
+
+fn format_table_ident(table: &str) -> String {
+    table
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .map(|part| format!("`{}`", part))
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 /// 执行 SQL
@@ -230,4 +239,15 @@ fn build_opts(conn: &ConnectionInfo) -> Result<Opts, String> {
             .db_name(conn.default_db.as_ref().map(|s| s.as_str())),
     )
     .map_err(|e| format!("无效的连接参数: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_table_ident;
+
+    #[test]
+    fn format_table_ident_supports_qualified_name() {
+        assert_eq!(format_table_ident("demo.users"), "`demo`.`users`");
+        assert_eq!(format_table_ident("users"), "`users`");
+    }
 }

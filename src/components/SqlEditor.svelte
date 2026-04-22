@@ -8,11 +8,12 @@
   import { autocompletion } from '@codemirror/autocomplete';
   import { oneDark } from '@codemirror/theme-one-dark';
   import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+  import { notifyError } from '../lib/notifications';
 
   export let connection = null;
   export let onExecute = () => {};
   export let onBatchExecute = () => {};  // 批量执行回调
-  export let placeholder = '-- 输入 SQL 语句...';
+  const placeholder = '-- 输入 SQL 语句...';
 
   let editorContainer;
   let editorView = null;
@@ -21,10 +22,23 @@
   let showSnippetDialog = false;
   let batchMode = false;  // 批量执行模式
   let useTransaction = false;  // 使用事务
+  let persistHistory = false;
+  let historyNotice = '';
 
   // SQL 历史记录
   let sqlHistory = [];
   const MAX_HISTORY = 100;
+  const SQL_HISTORY_STORAGE_KEY = 'querylab_sql_history';
+  const SQL_HISTORY_ENABLED_KEY = 'querylab_sql_history_enabled';
+  const SENSITIVE_SQL_PATTERNS = [
+    /\bpassword\b/i,
+    /\bsecret\b/i,
+    /\btoken\b/i,
+    /\bapi[_-]?key\b/i,
+    /\baccess[_-]?key\b/i,
+    /\bprivate[_-]?key\b/i,
+    /\bcredential\b/i,
+  ];
 
   // 数据库表名（用于自动补全）
   let tableNames = [];
@@ -61,9 +75,14 @@
   // 加载历史记录
   function loadHistory() {
     try {
-      const saved = localStorage.getItem('querylab_sql_history');
-      if (saved) {
-        sqlHistory = JSON.parse(saved);
+      const savedEnabled = localStorage.getItem(SQL_HISTORY_ENABLED_KEY);
+      persistHistory = savedEnabled === 'true';
+
+      if (persistHistory) {
+        const saved = localStorage.getItem(SQL_HISTORY_STORAGE_KEY);
+        if (saved) {
+          sqlHistory = JSON.parse(saved);
+        }
       }
     } catch (err) {
       console.error('Failed to load history:', err);
@@ -74,6 +93,7 @@
   function saveToHistory(sqlText) {
     if (!sqlText || !sqlText.trim()) return;
 
+    historyNotice = '';
     sqlHistory = sqlHistory.filter(h => h.sql !== sqlText);
     sqlHistory.unshift({
       sql: sqlText,
@@ -85,16 +105,74 @@
       sqlHistory = sqlHistory.slice(0, MAX_HISTORY);
     }
 
+    if (!persistHistory) {
+      historyNotice = '历史记录仅保留当前会话，不会在重启后保留。';
+      return;
+    }
+
+    if (isSensitiveSql(sqlText)) {
+      historyNotice = '检测到可能包含敏感信息，本条 SQL 仅保留当前会话，不会写入本地历史。';
+      persistHistoryEntries(sqlHistory.filter(h => h.sql !== sqlText));
+      return;
+    }
+
+    persistHistoryEntries(sqlHistory);
+  }
+
+  function clearHistory() {
+    sqlHistory = [];
+    localStorage.removeItem(SQL_HISTORY_STORAGE_KEY);
+    historyNotice = '';
+  }
+
+  function persistHistoryEntries(entries) {
     try {
-      localStorage.setItem('querylab_sql_history', JSON.stringify(sqlHistory));
+      localStorage.setItem(SQL_HISTORY_STORAGE_KEY, JSON.stringify(entries));
     } catch (err) {
       console.error('Failed to save history:', err);
     }
   }
 
-  function clearHistory() {
-    sqlHistory = [];
-    localStorage.removeItem('querylab_sql_history');
+  function saveHistoryPreference() {
+    try {
+      localStorage.setItem(SQL_HISTORY_ENABLED_KEY, String(persistHistory));
+    } catch (err) {
+      console.error('Failed to save history preference:', err);
+    }
+  }
+
+  function toggleHistoryPersistence() {
+    persistHistory = !persistHistory;
+    saveHistoryPreference();
+
+    if (!persistHistory) {
+      localStorage.removeItem(SQL_HISTORY_STORAGE_KEY);
+      historyNotice = '已关闭本地历史保存。当前会话结束后，历史记录不会保留。';
+      return;
+    }
+
+    persistHistoryEntries(sqlHistory.filter(h => !isSensitiveSql(h.sql)));
+    historyNotice = '已开启本地历史保存。含敏感关键词的 SQL 仍不会写入本地历史。';
+  }
+
+  function isSensitiveSql(sqlText) {
+    return SENSITIVE_SQL_PATTERNS.some((pattern) => pattern.test(sqlText));
+  }
+
+  function closeSnippetDialog() {
+    showSnippetDialog = false;
+  }
+
+  function handleSnippetOverlayClick(event) {
+    if (event.target === event.currentTarget) {
+      closeSnippetDialog();
+    }
+  }
+
+  function handleSnippetOverlayKeydown(event) {
+    if (event.key === 'Escape') {
+      closeSnippetDialog();
+    }
   }
 
   // SQL 关键字列表（用于自动补全）
@@ -274,7 +352,7 @@
     const sqlToExecute = (await getSelectedSql()).trim() || (await getSql()).trim();
     if (!sqlToExecute) return;
     if (!connection) {
-      alert('请先选择连接');
+      notifyError('请先选择连接');
       return;
     }
 
@@ -502,7 +580,7 @@
       📋 片段
     </button>
     <button class="btn-history" on:click={() => showHistory = !showHistory} title="历史记录 (Ctrl+H)">
-      🕒 历史 ({sqlHistory.length})
+      🕒 历史 {persistHistory ? '（本地）' : '（会话）'} ({sqlHistory.length})
     </button>
     <button class="btn-clear" on:click={clear} title="清空 (Ctrl+K)">
       清空
@@ -529,8 +607,14 @@
           <button class="btn-close-history" on:click={() => showHistory = false}>&times;</button>
         </div>
         <div class="history-actions">
+          <button class="btn-history-mode" on:click={toggleHistoryPersistence}>
+            {persistHistory ? '关闭本地保存' : '开启本地保存'}
+          </button>
           <button class="btn-clear-history" on:click={clearHistory}>清空历史</button>
         </div>
+        {#if historyNotice}
+          <div class="history-notice">{historyNotice}</div>
+        {/if}
         <div class="history-search">
           <input
             type="text"
@@ -543,12 +627,12 @@
             <div class="history-empty">暂无历史记录</div>
           {:else}
             {#each sqlHistory as item}
-              <div class="history-item" on:click={() => loadFromHistory(item)}>
+              <button type="button" class="history-item" on:click={() => loadFromHistory(item)}>
                 <div class="history-sql">{item.sql.slice(0, 150)}{item.sql.length > 150 ? '...' : ''}</div>
                 <div class="history-meta">
                   <span class="history-date">{item.date}</span>
                 </div>
-              </div>
+              </button>
             {/each}
           {/if}
         </div>
@@ -562,19 +646,26 @@
 
 <!-- 代码片段对话框 -->
 {#if showSnippetDialog}
-  <div class="dialog-overlay" on:click={() => showSnippetDialog = false}>
-    <div class="dialog snippet-dialog" on:click|stopPropagation>
+  <div
+    class="dialog-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭 SQL 代码片段对话框"
+    on:click={handleSnippetOverlayClick}
+    on:keydown={handleSnippetOverlayKeydown}
+  >
+    <div class="dialog snippet-dialog" role="dialog" aria-modal="true" aria-label="SQL 代码片段">
       <div class="dialog-header">
         <h3>SQL 代码片段 ({snippets.length})</h3>
-        <button class="dialog-close" on:click={() => showSnippetDialog = false}>&times;</button>
+        <button class="dialog-close" on:click={closeSnippetDialog}>&times;</button>
       </div>
       <div class="dialog-body">
         <div class="snippet-list">
           {#each snippets as snippet}
-            <div class="snippet-item" on:click={() => insertSnippet(snippet)}>
+            <button type="button" class="snippet-item" on:click={() => insertSnippet(snippet)}>
               <span class="snippet-name">{snippet.name}</span>
               <span class="snippet-preview">{snippet.sql.slice(0, 50)}...</span>
-            </div>
+            </button>
           {/each}
         </div>
       </div>
@@ -798,6 +889,8 @@
   .history-actions {
     padding: 6px 12px;
     border-bottom: 1px solid #3e3e3e;
+    display: flex;
+    gap: 8px;
   }
 
   .btn-clear-history {
@@ -812,6 +905,28 @@
 
   .btn-clear-history:hover {
     background: #4a2a2a;
+  }
+
+  .btn-history-mode {
+    padding: 3px 8px;
+    background: #3e3e3e;
+    border: none;
+    border-radius: 4px;
+    color: #d4d4d4;
+    font-size: 10px;
+    cursor: pointer;
+  }
+
+  .btn-history-mode:hover {
+    background: #4e4e4e;
+  }
+
+  .history-notice {
+    padding: 8px 12px;
+    border-bottom: 1px solid #3e3e3e;
+    font-size: 11px;
+    color: #dcdcaa;
+    background: #2a2d2e;
   }
 
   .history-search {
@@ -850,6 +965,14 @@
     padding: 10px 12px;
     border-bottom: 1px solid #2d2d2d;
     cursor: pointer;
+    width: 100%;
+    background: transparent;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
 
   .history-item:hover {
@@ -955,12 +1078,17 @@
   .snippet-item {
     padding: 10px 12px;
     background: #3e3e3e;
+    border: none;
     border-radius: 4px;
     cursor: pointer;
     transition: background 0.15s;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    width: 100%;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
 
   .snippet-item:hover {

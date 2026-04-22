@@ -1,6 +1,8 @@
 // App commands - 版本、环境、健康检查
 
 use serde::Serialize;
+use std::fs;
+use std::path::Path;
 
 #[derive(Serialize)]
 pub struct AppInfo {
@@ -23,40 +25,12 @@ pub fn app_get_info() -> AppInfo {
     }
 }
 
-/// 统一返回结构
-#[derive(Serialize)]
-pub struct ApiResponse<T> {
-    pub ok: bool,
-    pub data: Option<T>,
-    pub error: Option<ApiError>,
-}
-
-#[derive(Serialize)]
-pub struct ApiError {
-    pub code: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
-
-impl<T> ApiResponse<T> {
-    pub fn ok(data: T) -> Self {
-        Self {
-            ok: true,
-            data: Some(data),
-            error: None,
-        }
+#[tauri::command]
+pub fn fs_write_file(path: String, contents: String) -> Result<bool, String> {
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
     }
 
-    pub fn err(code: &str, message: &str) -> Self {
-        Self {
-            ok: false,
-            data: None,
-            error: Some(ApiError {
-                code: code.to_string(),
-                message: message.to_string(),
-                detail: None,
-            }),
-        }
-    }
+    fs::write(&path, contents).map_err(|e| format!("写入文件失败: {}", e))?;
+    Ok(true)
 }

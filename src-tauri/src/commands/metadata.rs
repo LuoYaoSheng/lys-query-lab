@@ -103,21 +103,6 @@ pub async fn meta_create_database(params: CreateDatabaseParams) -> Result<String
 /// 创建表
 #[tauri::command]
 pub async fn meta_create_table(params: CreateTableParams) -> Result<String, String> {
-    // Debug logging - 同时输出到控制台和文件
-    let log_msg = format!("=== DEBUG: Creating table {}.{}, columns: {} ===", params.database, params.table, params.columns.len());
-    println!("{}", log_msg);
-    eprintln!("{}", log_msg);
-
-    // 写入日志文件
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/querylab_debug.log") {
-        use std::io::Write;
-        let _ = writeln!(file, "{}", log_msg);
-        for (i, col) in params.columns.iter().enumerate() {
-            let _ = writeln!(file, "  Column {}: name={}, type={}, nullable={}, pk={}, auto_inc={}",
-                     i, col.name, col.col_type, col.nullable, col.primary_key, col.auto_increment);
-        }
-    }
-
     let opts = build_opts(&params.connection)?;
     let mut conn = mysql_async::Conn::new(opts).await
         .map_err(|e| e.to_string())?;
@@ -129,7 +114,6 @@ pub async fn meta_create_table(params: CreateTableParams) -> Result<String, Stri
             primary_key_names.push(col.name.clone());
         }
     }
-    println!("Primary key columns: {:?}", primary_key_names);
 
     // 构建列定义
     let column_defs: Vec<String> = params.columns
@@ -175,8 +159,6 @@ pub async fn meta_create_table(params: CreateTableParams) -> Result<String, Stri
     } else {
         String::new()
     };
-    println!("Primary key def: {:?}", pk_def);
-
     // 构建表选项
     let engine_part = if !params.engine.is_empty() {
         format!("ENGINE={}", params.engine)
@@ -202,8 +184,6 @@ pub async fn meta_create_table(params: CreateTableParams) -> Result<String, Stri
         String::new()
     };
 
-    println!("Column defs: {:?}", column_defs);
-
     let sql = format!(
         "CREATE TABLE `{}`.`{}` ({}{}) {} {} {}",
         params.database,
@@ -220,15 +200,6 @@ pub async fn meta_create_table(params: CreateTableParams) -> Result<String, Stri
     } else {
         sql
     };
-
-    println!("Final SQL: {}", final_sql);
-    eprintln!("Final SQL: {}", final_sql);
-
-    // 写入 SQL 到日志文件
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/querylab_debug.log") {
-        use std::io::Write;
-        let _ = writeln!(file, "SQL: {}", final_sql);
-    }
 
     conn.query_drop(&final_sql)
         .await
@@ -271,7 +242,7 @@ pub async fn meta_list_databases(connection: ConnectionInfo) -> Result<Vec<Strin
 pub async fn meta_list_tables(
     connection: ConnectionInfo,
     database: String,
-    _include_views: bool,
+    include_views: bool,
 ) -> Result<Vec<TableInfo>, String> {
     let opts = build_opts(&connection)?;
     let mut conn = mysql_async::Conn::new(opts).await
@@ -286,7 +257,7 @@ pub async fn meta_list_tables(
         escape_sql(&database)
     );
 
-    let tables: Vec<TableInfo> = conn
+    let mut tables: Vec<TableInfo> = conn
         .query::<Row, _>(&*sql)
         .await
         .map_err(|e| e.to_string())?
@@ -299,6 +270,10 @@ pub async fn meta_list_tables(
             rows_est: r.get::<Option<u64>, _>("ROWS_EST").flatten().unwrap_or(0),
         })
         .collect();
+
+    if !include_views {
+        tables.retain(|table| table.table_type.to_uppercase() != "VIEW");
+    }
 
     Ok(tables)
 }

@@ -32,6 +32,12 @@
   - 产品边界、MVP 范围、用户场景
 - [API_SQL_补全策略.md](./API_SQL_补全策略.md)
   - SQL 补全与元数据策略
+- [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)
+  - 发布前检查清单与最小冒烟顺序
+- [RELEASE_VERIFICATION_2026-04-22.md](./RELEASE_VERIFICATION_2026-04-22.md)
+  - 本轮发布前验收结果记录
+- [CORE_LOGIC_REVIEW_2026-04-22.md](./CORE_LOGIC_REVIEW_2026-04-22.md)
+  - 核心功能逻辑、页面交互流程、时序图与剩余边界
 - [src-ui/README.md](/Users/luoyaosheng/Desktop/project/Open/QueryLab/src-ui/README.md)
   - `src-ui/` 并行工作区说明
 

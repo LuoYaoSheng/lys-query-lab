@@ -36,16 +36,21 @@
   let filterColumn = 'all';
 
   // 主键列
+  $: singlePrimaryKeyName = getSinglePrimaryKeyName();
   $: primaryKeyColumn = getPrimaryKeyColumn();
 
+  function getSinglePrimaryKeyName() {
+    const primaryIndex = tableSchema?.indexes?.find((index) => index.name === 'PRIMARY');
+    if (!primaryIndex || primaryIndex.columns.length !== 1) {
+      return null;
+    }
+    return primaryIndex.columns[0];
+  }
+
   function getPrimaryKeyColumn() {
-    if (!data.columns.length) return 0;
-    const idCol = data.columns.findIndex(c =>
-      c.name.toLowerCase() === 'id' ||
-      c.name.toLowerCase() === '_id' ||
-      c.name.endsWith('_id')
-    );
-    return idCol >= 0 ? idCol : 0;
+    if (!data.columns.length || !singlePrimaryKeyName) return null;
+    const primaryIndex = data.columns.findIndex((column) => column.name === singlePrimaryKeyName);
+    return primaryIndex >= 0 ? primaryIndex : null;
   }
 
   // 检查列是否是主键
@@ -56,6 +61,50 @@
     return primaryIndex.columns.includes(colName);
   }
 
+  function supportsRowMutation() {
+    return Boolean(singlePrimaryKeyName && primaryKeyColumn !== null);
+  }
+
+  function escapeSqlString(value) {
+    return String(value)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "''");
+  }
+
+  function buildWhereClause() {
+    const escapedFilter = escapeSqlString(filterText);
+
+    if (filterText && filterColumn !== 'all') {
+      return ` WHERE \`${filterColumn}\` LIKE '%${escapedFilter}%'`;
+    }
+
+    if (filterText && data.columns.length > 0) {
+      const conditions = data.columns.map(col =>
+        `\`${col.name}\` LIKE '%${escapedFilter}%'`
+      ).join(' OR ');
+      return conditions ? ` WHERE ${conditions}` : '';
+    }
+
+    return '';
+  }
+
+  async function loadTotalCount(database, table, whereClause) {
+    const countSql = `SELECT COUNT(*) AS total_count FROM \`${database}\`.\`${table}\`${whereClause}`;
+    const result = await invoke('query_execute', {
+      connection,
+      sql: countSql,
+      maxRows: 1
+    });
+
+    const set = result?.sets?.[0];
+    const row = set?.chunks?.[0]?.rows?.[0];
+    const raw = row?.[0];
+
+    if (typeof raw === 'number') return raw;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   // 加载数据
   async function loadData() {
     if (!connection || !tableName) return;
@@ -63,6 +112,9 @@
     loading = true;
     error = null;
     isEmptyTable = false;
+    editingCell = null;
+    selectedRows = new Set();
+    newRows = [];
 
     try {
       const [database, table] = tableName.split('.');
@@ -71,19 +123,10 @@
       // 总是加载表结构，以便获取主键和自增信息
       await loadTableSchema(database, table);
 
-      let sql = `SELECT * FROM \`${database}\`.\`${table}\``;
+      const whereClause = buildWhereClause();
+      const totalRows = await loadTotalCount(database, table, whereClause);
 
-      // 添加筛选
-      if (filterText && filterColumn !== 'all') {
-        sql += ` WHERE \`${filterColumn}\` LIKE '%${filterText}%'`;
-      } else if (filterText) {
-        // 多列筛选
-        const conditions = data.columns.map(col =>
-          `\`${col.name}\` LIKE '%${filterText}%'`
-        ).join(' OR ');
-        sql += ` WHERE ${conditions}`;
-      }
-
+      let sql = `SELECT * FROM \`${database}\`.\`${table}\`${whereClause}`;
       sql += ` LIMIT ${pageSize} OFFSET ${offset}`;
 
       const result = await invoke('query_execute', {
@@ -99,9 +142,9 @@
         data = {
           columns: set.columns || [],
           rows: rows,
-          totalRows: set.meta?.affectedRows || rows.length
+          totalRows
         };
-        totalPages = Math.ceil(data.totalRows / pageSize);
+        totalPages = Math.max(1, Math.ceil(data.totalRows / pageSize));
 
         // 如果没有数据，标记为空表
         if (rows.length === 0) {
@@ -195,7 +238,9 @@
     }
 
     const newRow = new Array(data.columns.length).fill(null);
-    newRow[primaryKeyColumn] = ''; // 主键设为空
+    if (primaryKeyColumn !== null) {
+      newRow[primaryKeyColumn] = '';
+    }
     const newRowIndex = data.rows.length + newRows.length;
 
     // 触发响应式更新
@@ -211,11 +256,21 @@
   // 删除选中行 - 显示确认对话框
   function deleteSelectedRows() {
     if (selectedRows.size === 0) return;
+    if (!supportsRowMutation()) {
+      updateMessage = { success: false, text: '当前表缺少单列主键，暂不支持网格删除' };
+      return;
+    }
     showDeleteConfirm = true;
   }
 
   // 执行删除
   async function executeDelete() {
+    if (!supportsRowMutation()) {
+      updateMessage = { success: false, text: '当前表缺少单列主键，暂不支持网格删除' };
+      showDeleteConfirm = false;
+      return;
+    }
+
     showDeleteConfirm = false;
     loading = true;
 
@@ -247,14 +302,32 @@
     showDeleteConfirm = false;
   }
 
+  function handleDeleteOverlayClick(event) {
+    if (event.target === event.currentTarget) {
+      cancelDelete();
+    }
+  }
+
+  function handleDeleteOverlayKeydown(event) {
+    if (event.key === 'Escape') {
+      cancelDelete();
+    }
+  }
+
   function quoteValue(value) {
     if (value === null || value === '') return 'NULL';
-    if (value.parseNumeric?.() !== undefined) return value;
+    if (typeof value === 'number') return String(value);
+    if (/^-?\d+(\.\d+)?$/.test(String(value))) return String(value);
     return `'${value.replace(/'/g, "''").replace(/\\/g, '\\\\')}'`;
   }
 
   // 编辑单元格
   function startEdit(rowIndex, colIndex, currentValue) {
+    if (!supportsRowMutation()) {
+      updateMessage = { success: false, text: '当前表缺少单列主键，暂不支持网格编辑' };
+      return;
+    }
+
     const isNewRow = rowIndex >= data.rows.length;
     editingCell = {
       rowIndex,
@@ -265,10 +338,11 @@
   }
 
   function cancelEdit() {
+    const currentEdit = editingCell;
     editingCell = null;
     // 如果是新增行取消编辑，移除该行
-    if (editingCell?.isNew) {
-      newRows = newRows.filter(r => r.index !== editingCell.rowIndex);
+    if (currentEdit?.isNew) {
+      newRows = newRows.filter(r => r.index !== currentEdit.rowIndex);
     }
   }
 
@@ -304,6 +378,12 @@
   }
 
   async function updateCell(rowIndex, colIndex, value) {
+    if (!supportsRowMutation()) {
+      updateMessage = { success: false, text: '当前表缺少单列主键，暂不支持网格编辑' };
+      editingCell = null;
+      return;
+    }
+
     loading = true;
     try {
       const row = data.rows[rowIndex];
@@ -414,6 +494,7 @@
   }
 
   function toggleRowSelection(rowIndex) {
+    if (!supportsRowMutation()) return;
     if (selectedRows.has(rowIndex)) {
       selectedRows.delete(rowIndex);
     } else {
@@ -423,6 +504,7 @@
   }
 
   function toggleSelectAll() {
+    if (!supportsRowMutation()) return;
     if (selectedRows.size === data.rows.length) {
       selectedRows.clear();
     } else {
@@ -436,7 +518,16 @@
   function formatCellValue(value) {
     if (value === null) return '<span class="null-value">NULL</span>';
     if (typeof value === 'object') return '[Binary]';
-    return String(value);
+    return escapeHtml(String(value));
+  }
+
+  function escapeHtml(value) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   // 导出为 CSV
@@ -582,7 +673,7 @@
       <button
         class="btn-toolbar btn-delete"
         on:click={deleteSelectedRows}
-        disabled={selectedRows.size === 0 || loading}
+        disabled={selectedRows.size === 0 || loading || !supportsRowMutation()}
         title="删除选中行"
       >
         - 删除 ({selectedRows.size})
@@ -627,6 +718,12 @@
     </div>
   {/if}
 
+  {#if tableSchema && !supportsRowMutation()}
+    <div class="readonly-banner">
+      当前表未检测到单列主键，网格视图仅支持浏览、筛选、导出和插入；更新与删除已禁用。
+    </div>
+  {/if}
+
   <!-- 表格 -->
   <div class="datagrid-table-wrapper">
     {#if loading}
@@ -645,6 +742,7 @@
                 <input
                   type="checkbox"
                   checked={selectedRows.size === data.rows.length && data.rows.length > 0}
+                  disabled={!supportsRowMutation()}
                   on:change={toggleSelectAll}
                 />
               </th>
@@ -684,6 +782,7 @@
                       <input
                         type="checkbox"
                         checked={isSelected}
+                        disabled={!supportsRowMutation()}
                         on:click|stopPropagation={() => toggleRowSelection(rowIndex)}
                       />
                     {/if}
@@ -694,9 +793,9 @@
                     <td
                       class="datagrid-cell"
                       class:cell-primary-key={isPrimaryKey}
-                      class:cell-editable={!isPrimaryKey}
+                      class:cell-editable={!isPrimaryKey && supportsRowMutation()}
                       class:cell-editing={isEditingThisCell}
-                      on:dblclick={() => !isPrimaryKey && startEdit(rowIndex, colIndex, row[colIndex])}
+                      on:dblclick={() => !isPrimaryKey && supportsRowMutation() && startEdit(rowIndex, colIndex, row[colIndex])}
                     >
                       {#if isEditingThisCell}
                         <input
@@ -704,7 +803,6 @@
                           class="cell-input"
                           bind:value={editingCell.value}
                           on:keydown={handleKeydown}
-                          autofocus
                         />
                       {:else}
                         {@html formatCellValue(row[colIndex])}
@@ -742,8 +840,15 @@
 
 <!-- 删除确认对话框 -->
 {#if showDeleteConfirm}
-  <div class="confirm-dialog-overlay" on:click={cancelDelete}>
-    <div class="confirm-dialog" on:click|stopPropagation>
+  <div
+    class="confirm-dialog-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭删除确认对话框"
+    on:click={handleDeleteOverlayClick}
+    on:keydown={handleDeleteOverlayKeydown}
+  >
+    <div class="confirm-dialog" role="dialog" aria-modal="true" aria-label="确认删除数据">
       <div class="confirm-dialog-header">
         <h3>确认删除</h3>
       </div>
@@ -906,6 +1011,15 @@
     cursor: pointer;
     padding: 0;
     line-height: 1;
+  }
+
+  .readonly-banner {
+    padding: 8px 12px;
+    background: #1f364b;
+    border-top: 1px solid #2f5f8a;
+    border-bottom: 1px solid #2f5f8a;
+    color: #9cdcfe;
+    font-size: 12px;
   }
 
   .datagrid-table-wrapper {
@@ -1139,127 +1253,6 @@
   .page-input:focus {
     outline: none;
     border-color: #007acc;
-  }
-
-  /* 空表结构视图 */
-  .empty-table-view {
-    padding: 16px;
-  }
-
-  .empty-table-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    background: #2d2d2d;
-    border-radius: 4px;
-    border-left: 4px solid #007acc;
-  }
-
-  .empty-table-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #d4d4d4;
-  }
-
-  .empty-table-note {
-    font-size: 12px;
-    color: #888;
-  }
-
-  .empty-table-view table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-
-  .empty-table-view thead {
-    position: sticky;
-    top: 0;
-    background: #2d2d2d;
-    z-index: 2;
-  }
-
-  .empty-table-view th {
-    padding: 10px 12px;
-    border-right: 1px solid #3e3e3e;
-    border-bottom: 1px solid #3e3e3e;
-    text-align: left;
-    font-weight: 500;
-    background: #252526;
-    color: #888;
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-
-  .empty-table-view th:last-child {
-    border-right: none;
-  }
-
-  .empty-table-view td {
-    padding: 8px 12px;
-    border-right: 1px solid #2d2d2d;
-    border-bottom: 1px solid #2d2d2d;
-  }
-
-  .empty-table-view td:last-child {
-    border-right: none;
-  }
-
-  .empty-table-view tbody tr:hover td {
-    background: #2a2d2e;
-  }
-
-  .col-name-cell {
-    font-weight: 500;
-    color: #d4d4d4;
-  }
-
-  .key-icon {
-    margin-right: 6px;
-  }
-
-  .col-type-cell {
-    color: #4ec9b0;
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-    font-size: 12px;
-  }
-
-  .col-nullable-cell {
-    color: #888;
-    text-align: center;
-    width: 80px;
-  }
-
-  .col-nullable-cell:not(:empty) {
-    font-weight: 500;
-  }
-
-  .col-key-cell {
-    color: #c586c0;
-    font-weight: 500;
-    width: 80px;
-  }
-
-  .col-default-cell {
-    color: #ce9178;
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-    font-size: 12px;
-  }
-
-  .col-extra-cell {
-    color: #888;
-    font-size: 11px;
-  }
-
-  .schema-loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 40px;
-    color: #888;
-    font-size: 14px;
   }
 
   /* 删除确认对话框样式 */

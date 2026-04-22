@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { save, open } from '@tauri-apps/plugin-dialog';
+  import { notifyError, notifyInfo, notifySuccess } from '../lib/notifications';
 
   export let connection = null;
   export let databases = [];
@@ -8,8 +9,8 @@
 
   let selectedDatabase = '';
   let selectedTables = [];
-  let exportType = 'structure'; // 'structure', 'data', 'both'
-  let exportFormat = 'sql'; // 'sql', 'json', 'csv'
+  let exportType = 'both'; // 仅保留结构 + 数据的 SQL 备份
+  const exportFormat = 'sql';
   let isExporting = false;
   let exportProgress = 0;
   let exportStatus = '';
@@ -33,9 +34,10 @@
     try {
       const tables = await invoke('meta_list_tables', {
         connection,
-        database: selectedDatabase
+        database: selectedDatabase,
+        includeViews: false,
       });
-      availableTables = tables || [];
+      availableTables = (tables || []).map((table) => typeof table === 'string' ? table : table.name);
       // 默认全选
       selectedTables = [...availableTables];
     } catch (err) {
@@ -66,12 +68,12 @@
   // 导出数据库
   async function exportDatabase() {
     if (!connection || !selectedDatabase) {
-      exportStatus = '请选择数据库';
+      notifyError('请选择数据库');
       return;
     }
 
     if (selectedTables.length === 0) {
-      exportStatus = '请选择至少一个表';
+      notifyError('请选择至少一个表');
       return;
     }
 
@@ -83,16 +85,15 @@
 
     try {
       // 选择保存路径
-      const ext = exportFormat === 'json' ? 'json' : exportFormat === 'csv' ? 'csv' : 'sql';
-      const fileName = `${selectedDatabase}_backup_${Date.now()}.${ext}`;
+      const fileName = `${selectedDatabase}_backup_${Date.now()}.sql`;
 
       const filePath = await save({
         title: '保存数据库备份',
         defaultPath: fileName,
         filters: [
           {
-            name: ext.toUpperCase(),
-            extensions: [ext]
+            name: 'SQL',
+            extensions: ['sql']
           },
           {
             name: 'All Files',
@@ -102,7 +103,7 @@
       });
 
       if (!filePath) {
-        exportStatus = '已取消';
+        notifyInfo('已取消导出');
         isExporting = false;
         return;
       }
@@ -111,12 +112,14 @@
 
       // 调用后端导出
       const result = await invoke('db_export', {
-        connection,
-        database: selectedDatabase,
-        tables: selectedTables,
-        exportType,
-        format: exportFormat,
-        filePath
+        params: {
+          connection,
+          database: selectedDatabase,
+          tables: selectedTables,
+          export_type: exportType,
+          format: exportFormat,
+          file_path: filePath
+        }
       });
 
       exportProgress = 100;
@@ -128,6 +131,7 @@
         size: result.size || 0
       };
       showResult = true;
+      notifySuccess('备份导出成功');
     } catch (err) {
       exportStatus = '导出失败: ' + err;
       exportResult = {
@@ -135,6 +139,7 @@
         error: String(err)
       };
       showResult = true;
+      notifyError('导出失败: ' + err);
     } finally {
       isExporting = false;
     }
@@ -143,12 +148,12 @@
   // 导入数据库
   async function importDatabase() {
     if (!connection || !selectedDatabase) {
-      importStatus = '请选择数据库';
+      notifyError('请选择数据库');
       return;
     }
 
     if (!importFile) {
-      importStatus = '请选择导入文件';
+      notifyError('请选择导入文件');
       return;
     }
 
@@ -162,10 +167,12 @@
 
       // 调用后端导入
       const result = await invoke('db_import', {
-        connection,
-        database: selectedDatabase,
-        filePath: importFile,
-        dropExisting: importDropExisting
+        params: {
+          connection,
+          database: selectedDatabase,
+          file_path: importFile,
+          drop_existing: importDropExisting
+        }
       });
 
       importProgress = 100;
@@ -175,12 +182,14 @@
         tables: result.tables || 0,
         rows: result.rows || 0
       };
+      notifySuccess('备份导入成功');
     } catch (err) {
       importStatus = '导入失败: ' + err;
       importResult = {
         success: false,
         error: String(err)
       };
+      notifyError('导入失败: ' + err);
     } finally {
       isImporting = false;
     }
@@ -196,10 +205,6 @@
           {
             name: 'SQL Files',
             extensions: ['sql']
-          },
-          {
-            name: 'JSON Files',
-            extensions: ['json']
           },
           {
             name: 'All Files',
@@ -258,8 +263,8 @@
       <div class="export-panel">
         <div class="form-section">
           <div class="form-group">
-            <label>选择数据库</label>
-            <select bind:value={selectedDatabase} on:change={loadTables}>
+            <label for="backup-export-database">选择数据库</label>
+            <select id="backup-export-database" bind:value={selectedDatabase} on:change={loadTables}>
               <option value="">-- 请选择 --</option>
               {#each databases as db}
                 <option value={db}>{db}</option>
@@ -292,39 +297,18 @@
 
           <div class="form-section">
             <div class="form-group">
-              <label>导出类型</label>
+              <div class="field-label">导出类型</div>
               <div class="radio-group">
                 <label class="radio-item">
-                  <input type="radio" bind:group={exportType} value="structure" />
-                  <span>仅结构</span>
-                </label>
-                <label class="radio-item">
-                  <input type="radio" bind:group={exportType} value="data" />
-                  <span>仅数据</span>
-                </label>
-                <label class="radio-item">
                   <input type="radio" bind:group={exportType} value="both" />
-                  <span>结构和数据</span>
+                  <span>结构 + 数据（SQL）</span>
                 </label>
               </div>
             </div>
 
             <div class="form-group">
-              <label>导出格式</label>
-              <div class="radio-group">
-                <label class="radio-item">
-                  <input type="radio" bind:group={exportFormat} value="sql" />
-                  <span>SQL (.sql)</span>
-                </label>
-                <label class="radio-item">
-                  <input type="radio" bind:group={exportFormat} value="json" />
-                  <span>JSON (.json)</span>
-                </label>
-                <label class="radio-item">
-                  <input type="radio" bind:group={exportFormat} value="csv" />
-                  <span>CSV (.csv)</span>
-                </label>
-              </div>
+              <div class="field-label">导出格式</div>
+              <div class="field-static">仅支持 SQL (.sql)</div>
             </div>
           </div>
 
@@ -365,10 +349,11 @@
     {:else}
       <!-- 导入模式 -->
       <div class="import-panel">
+        <div class="mode-note">当前导入仅支持 SQL 备份文件。</div>
         <div class="form-section">
           <div class="form-group">
-            <label>目标数据库</label>
-            <select bind:value={selectedDatabase}>
+            <label for="backup-import-database">目标数据库</label>
+            <select id="backup-import-database" bind:value={selectedDatabase}>
               <option value="">-- 请选择 --</option>
               {#each databases as db}
                 <option value={db}>{db}</option>
@@ -379,10 +364,10 @@
 
         <div class="form-section">
           <div class="form-group">
-            <label>备份文件</label>
+            <label for="backup-import-file">备份文件</label>
             <div class="file-selector">
-              <input type="text" bind:value={importFile} placeholder="选择备份文件..." readonly />
-              <button class="btn-browse" on:click={selectImportFile}>浏览</button>
+              <input id="backup-import-file" type="text" bind:value={importFile} placeholder="选择备份文件..." readonly />
+              <button class="btn-browse" on:click={selectImportFile}>浏览 SQL</button>
             </div>
           </div>
 

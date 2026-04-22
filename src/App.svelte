@@ -9,6 +9,7 @@
   import TableDesigner from './components/TableDesigner.svelte';
   import DataSync from './components/DataSync.svelte';
   import DatabaseBackup from './components/DatabaseBackup.svelte';
+  import NotificationCenter from './components/NotificationCenter.svelte';
 
   let appInfo = {
     version: '',
@@ -28,6 +29,8 @@
   let isCreatingNewTable = false; // 是否正在创建新表
   let targetDatabase = ''; // 新建表的目标数据库
   let databases = []; // 数据库列表
+  let shellPanel = null; // 'settings' | 'help' | 'about'
+  let editableResultTableName = '';
 
   // 用于更新编辑器中的 SQL 和刷新 SchemaTree
   let editorComponent;
@@ -57,8 +60,47 @@
     }
   });
 
+  function resetWorkspaceState() {
+    queryResult = null;
+    queryLoading = false;
+    queryError = null;
+    currentTableName = '';
+    currentDatabase = '';
+    viewMode = 'query';
+    isCreatingNewTable = false;
+    targetDatabase = '';
+    editableResultTableName = '';
+  }
+
+  function extractEditableTableName(sqlText) {
+    const trimmed = sqlText.trim();
+    if (!trimmed) {
+      return '';
+    }
+
+    const normalized = trimmed.replace(/\s+/g, ' ').replace(/;$/, '');
+    if (normalized.includes(';')) {
+      return '';
+    }
+
+    const match = normalized.match(/^select \* from `([^`]+)`\.`([^`]+)`(?: limit \d+)?$/i);
+    if (!match) {
+      return '';
+    }
+
+    return `${match[1]}.${match[2]}`;
+  }
+
   function handleConnect(conn) {
     selectedConnection = conn;
+    resetWorkspaceState();
+
+    if (!conn) {
+      databases = [];
+      statusMessage = 'No connection';
+      return;
+    }
+
     statusMessage = `Connected to ${conn.name || conn.host}`;
     loadDatabases();
   }
@@ -93,10 +135,8 @@
 
   // SQL 执行处理 - 直接调用，不通过事件
   async function executeQuery(sql) {
-    console.log('executeQuery called:', sql);
-    console.log('Connection:', selectedConnection);
-
     if (!selectedConnection) {
+      editableResultTableName = '';
       queryError = '请先选择连接';
       statusMessage = 'No connection';
       return;
@@ -105,33 +145,33 @@
     queryLoading = true;
     queryError = null;
     queryResult = null;
+    editableResultTableName = '';
     statusMessage = 'Executing...';
 
     try {
-      console.log('Calling query_execute...');
+      const nextEditableTableName = extractEditableTableName(sql);
       const result = await invoke('query_execute', {
         connection: selectedConnection,
         sql,
         maxRows: 1000
       });
-      console.log('Query result:', result);
       queryResult = result;
+      editableResultTableName = result.sets?.length === 1 ? nextEditableTableName : '';
       statusMessage = `Query completed in ${result.elapsedMs}ms`;
     } catch (err) {
       console.error('Query error:', err);
       queryError = String(err);
+      editableResultTableName = '';
       statusMessage = 'Query failed';
     } finally {
       queryLoading = false;
-      console.log('Query done, loading = false');
     }
   }
 
   // 批量执行处理
   async function handleBatchExecute(sql, useTransaction) {
-    console.log('handleBatchExecute called:', sql, 'useTransaction:', useTransaction);
-
     if (!selectedConnection) {
+      editableResultTableName = '';
       queryError = '请先选择连接';
       statusMessage = 'No connection';
       return;
@@ -140,6 +180,7 @@
     queryLoading = true;
     queryError = null;
     queryResult = null;
+    editableResultTableName = '';
 
     // 构建执行SQL
     let finalSql = sql;
@@ -208,16 +249,24 @@
   function refreshGrid() {
     // DataGrid 组件会自动刷新
   }
+
+  function openShellPanel(panel) {
+    shellPanel = panel;
+  }
+
+  function closeShellPanel() {
+    shellPanel = null;
+  }
 </script>
 
 <div class="app-container">
+  <NotificationCenter />
   <header class="app-header">
     <div class="logo">QueryLab</div>
     <nav class="nav">
-      <button>文件</button>
-      <button>编辑</button>
-      <button>视图</button>
-      <button>帮助</button>
+      <button on:click={() => openShellPanel('settings')}>设置</button>
+      <button on:click={() => openShellPanel('help')}>帮助</button>
+      <button on:click={() => openShellPanel('about')}>关于</button>
     </nav>
     <div class="version-info">v{appInfo.version} ({appInfo.build})</div>
   </header>
@@ -275,7 +324,7 @@
           class:active={viewMode === 'sync'}
           on:click={openDataSync}
         >
-          🔄 数据同步
+          🔍 结构对比（预览）
         </button>
         <button
           class="view-btn backup-btn"
@@ -308,6 +357,7 @@
             error={queryError}
             connection={selectedConnection}
             tableName={currentTableName}
+            editableTableName={editableResultTableName}
             onRefresh={() => {
               if (currentTableName) {
                 const parts = currentTableName.split('.');
@@ -385,6 +435,110 @@
     <span>{statusMessage}</span>
     <span>平台: {appInfo.platform}</span>
   </footer>
+
+  {#if shellPanel}
+    <div
+      class="shell-panel-overlay"
+      role="button"
+      tabindex="0"
+      aria-label="关闭信息面板"
+      on:click={(event) => event.target === event.currentTarget && closeShellPanel()}
+      on:keydown={(event) => event.key === 'Escape' && closeShellPanel()}
+    >
+      <div class="shell-panel" role="dialog" aria-modal="true" aria-label={shellPanel}>
+        <div class="shell-panel-header">
+          <div>
+            <div class="shell-panel-eyebrow">QueryLab</div>
+            <h2>
+              {#if shellPanel === 'settings'}设置{/if}
+              {#if shellPanel === 'help'}帮助{/if}
+              {#if shellPanel === 'about'}关于{/if}
+            </h2>
+          </div>
+          <button class="shell-panel-close" on:click={closeShellPanel}>&times;</button>
+        </div>
+
+        <div class="shell-panel-body">
+          {#if shellPanel === 'settings'}
+            <section class="shell-section">
+              <h3>安全与存储</h3>
+              <ul>
+                <li>连接密码存储在系统钥匙串中，不再写入 `connections.json`。</li>
+                <li>SQL 历史默认仅保留当前会话；如需本地保存，可在 SQL 编辑器历史面板中开启。</li>
+                <li>数据库备份当前仅支持 SQL 文件导出与导入。</li>
+              </ul>
+            </section>
+
+            <section class="shell-section">
+              <h3>当前限制</h3>
+              <ul>
+                <li>`结构对比（预览）` 当前只支持结构差异分析与结构 SQL 执行，不提供真实数据同步。</li>
+                <li>结果面板仅在识别为“单表直接查询”时开放单元格编辑；复杂 SQL 结果默认只读。</li>
+              </ul>
+            </section>
+          {/if}
+
+          {#if shellPanel === 'help'}
+            <section class="shell-section">
+              <h3>快速开始</h3>
+              <ol>
+                <li>先在左上角连接区新建数据库连接。</li>
+                <li>用“测试连接”确认可达，再点击连接名称进入主工作区。</li>
+                <li>在 Schema 区选择表，进入数据网格或表设计视图。</li>
+                <li>在 SQL 查询页执行语句；历史记录和代码片段在编辑器工具栏中打开。</li>
+              </ol>
+            </section>
+
+            <section class="shell-section">
+              <h3>核心能力边界</h3>
+              <ul>
+                <li>备份还原：目前只支持 SQL 备份文件。</li>
+                <li>结构对比：目前仅支持结构差异对比与结构变更预演。</li>
+                <li>数据编辑：支持表格单元格编辑、插入、删除，但复杂批量修改仍建议先备份再操作。</li>
+              </ul>
+            </section>
+
+            <section class="shell-section">
+              <h3>快捷键</h3>
+              <ul>
+                <li>`Ctrl+Enter`：执行 SQL</li>
+                <li>`Ctrl+S`：格式化 SQL</li>
+                <li>`Ctrl+H`：打开历史记录</li>
+                <li>`Ctrl+K`：清空编辑器</li>
+                <li>`F1`：插入 SQL 代码片段</li>
+              </ul>
+            </section>
+          {/if}
+
+          {#if shellPanel === 'about'}
+            <section class="shell-section">
+              <h3>应用信息</h3>
+              <ul>
+                <li>版本：`{appInfo.version}`</li>
+                <li>平台：`{appInfo.platform}`</li>
+                <li>构建：`{appInfo.build}`</li>
+              </ul>
+            </section>
+
+            <section class="shell-section">
+              <h3>定位</h3>
+              <p>
+                QueryLab 是一个本地优先的数据库工作台，当前首期聚焦 MySQL / MariaDB，
+                重点覆盖连接测试、Schema 浏览、SQL 执行、数据网格、表设计和 SQL 备份。
+              </p>
+            </section>
+
+            <section class="shell-section">
+              <h3>当前发布阶段</h3>
+              <p>
+                当前版本仍处于开发中，已具备核心工作流，但部分能力仍以预览或受限形态提供。
+              </p>
+            </section>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -437,6 +591,87 @@
 
   .nav button:hover {
     background: #3e3e3e;
+  }
+
+  .shell-panel-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: flex-end;
+    z-index: 2200;
+  }
+
+  .shell-panel {
+    width: 420px;
+    max-width: calc(100vw - 24px);
+    height: 100%;
+    background: #202123;
+    border-left: 1px solid #3e3e3e;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .shell-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 18px 20px;
+    border-bottom: 1px solid #3e3e3e;
+  }
+
+  .shell-panel-header h2 {
+    margin: 4px 0 0;
+    font-size: 20px;
+  }
+
+  .shell-panel-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #888;
+  }
+
+  .shell-panel-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 20px;
+    cursor: pointer;
+  }
+
+  .shell-panel-body {
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .shell-section {
+    background: #252526;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 16px;
+  }
+
+  .shell-section h3 {
+    margin: 0 0 10px;
+    font-size: 14px;
+  }
+
+  .shell-section p,
+  .shell-section li {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #d4d4d4;
+  }
+
+  .shell-section ul,
+  .shell-section ol {
+    margin: 0;
+    padding-left: 18px;
   }
 
   .version-info {
