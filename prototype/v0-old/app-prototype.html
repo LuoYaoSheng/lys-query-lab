@@ -1,0 +1,2656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QueryLab 可交互原型（lys-query-lab 重制评审版）</title>
+<style>
+:root{
+  --bg:#1e1e1e; --panel:#252526; --panel2:#2d2d2d; --line:#3e3e3e; --line2:#2d2d2d;
+  --txt:#d4d4d4; --muted:#888; --muted2:#666; --blue:#007acc; --green:#2da042; --teal:#4ec9b0;
+  --red:#f48771; --yellow:#dcdcaa; --purple:#c586c0; --input:#3c3c3c;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;background:#171717;color:#d4d4d4;overflow:auto}
+.stage{display:flex;gap:18px;padding:20px;align-items:flex-start;min-width:1560px}
+/* ===== 桌面窗口画框（模拟 Tauri 窗口 1400x900） ===== */
+.window-frame{width:1400px;height:900px;flex:0 0 1400px;border-radius:10px;overflow:hidden;border:1px solid #000;box-shadow:0 24px 70px rgba(0,0,0,.55);display:flex;flex-direction:column;background:var(--bg);position:relative}
+.titlebar{height:30px;background:#181818;display:flex;align-items:center;padding:0 12px;gap:8px;border-bottom:1px solid #111;flex:0 0 30px}
+.tl{width:12px;height:12px;border-radius:50%}
+.tl.r{background:#ff5f57}.tl.y{background:#febc2e}.tl.g{background:#28c840}
+.titlebar .t{flex:1;text-align:center;font-size:12px;color:#999;user-select:none}
+.window-caption{font-size:11px;color:#777;margin:2px 0 8px 4px}
+/* ===== 应用本体 ===== */
+.app{display:flex;flex-direction:column;height:calc(900px - 30px);background:var(--bg);color:var(--txt);overflow:hidden}
+.app-header{display:flex;align-items:center;padding:0 16px;height:48px;background:var(--panel2);border-bottom:1px solid var(--line);flex:0 0 48px}
+.logo{font-weight:600;font-size:16px;margin-right:24px;color:var(--blue)}
+.nav{display:flex;gap:4px;flex:1}
+.nav button{background:transparent;border:none;color:var(--txt);padding:6px 12px;cursor:pointer;border-radius:4px;font-size:13px}
+.nav button:hover{background:var(--line)}
+.version-info{font-size:12px;color:var(--muted)}
+.app-main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:280px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.sidebar-section{display:flex;flex-direction:column;min-height:0}
+.sidebar-section:first-child{flex:0 0 auto;max-height:46%;border-bottom:1px solid var(--line)}
+.sidebar-section:last-child{flex:1;min-height:0}
+.sidebar-header{padding:8px 16px;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--muted);background:var(--panel2);border-bottom:1px solid var(--line)}
+.workspace{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.view-switcher{display:flex;gap:4px;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line);align-items:center}
+.view-btn{padding:6px 16px;background:transparent;border:1px solid transparent;border-radius:4px;color:var(--muted);font-size:12px;cursor:pointer;transition:all .2s}
+.view-btn:hover{background:var(--line);color:var(--txt)}
+.view-btn.active{background:var(--blue);color:#fff;border-color:#005a9e}
+.view-btn.design-btn.active{background:#9b46c8;border-color:#7a35a0}
+.view-btn.sync-btn.active{background:#0e639c;border-color:#0a4a74}
+.view-btn.backup-btn.active{background:#c84e4e;border-color:#a03535}
+.creating-indicator{padding:8px 16px;background:#2a3a2e;color:var(--teal);font-size:12px}
+.page-tag{margin-left:auto;font-size:10px;color:var(--muted2);border:1px dashed #4e4e4e;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.app-footer{display:flex;justify-content:space-between;padding:0 16px;height:24px;background:var(--blue);font-size:12px;align-items:center;color:#fff;flex:0 0 24px}
+/* 通用控件 */
+button{font-family:inherit}
+.btn{padding:6px 16px;border-radius:4px;font-size:12px;cursor:pointer;border:none;transition:all .15s}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-primary:hover:not(:disabled){background:#006bb3}
+.btn-secondary{background:var(--line);color:var(--txt)}
+.btn-secondary:hover:not(:disabled){background:#4e4e4e}
+.btn-danger{background:#d73a49;color:#fff}
+.btn-danger:hover:not(:disabled){background:#cb2c3b}
+.btn-green{background:var(--green);color:#fff}
+.btn-green:hover:not(:disabled){background:#238736}
+input[type=text],input[type=password],input[type=number],select,textarea{background:var(--input);border:1px solid var(--line);border-radius:4px;color:var(--txt);font-size:13px;padding:8px 12px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue)}
+.empty-state,.loading,.error{padding:16px;text-align:center;color:var(--muted2);font-size:13px}
+.error{color:var(--red)}
+/* 视图容器 */
+.view{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.hidden{display:none !important}
+/* ===== SQL 查询视图 ===== */
+.editor-section{flex:1;min-height:120px;display:flex;flex-direction:column}
+.results-section{flex:1;min-height:120px;border-top:1px solid var(--line);display:flex;flex-direction:column}
+.sql-editor{display:flex;flex-direction:column;height:100%;background:var(--bg)}
+.editor-toolbar{display:flex;align-items:center;padding:6px 12px;background:var(--panel2);border-bottom:1px solid var(--line);gap:4px;flex-wrap:wrap}
+.editor-toolbar button{background:var(--line);border:none;color:var(--txt);padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px}
+.editor-toolbar button:hover{background:#4e4e4e}
+.btn-run{background:var(--green) !important;color:#fff !important}
+.btn-run.batch-mode{background:#9b46c8 !important}
+.tb-on{background:var(--blue) !important;color:#fff !important}
+.spacer{flex:1}
+.connection-info{font-size:10px;color:var(--muted)}
+.shortcuts-hint{font-size:9px;color:var(--muted2)}
+.editor-main{flex:1;display:flex;overflow:hidden}
+.history-panel{width:320px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.history-header{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600;font-size:12px}
+.history-actions{padding:6px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px}
+.history-actions button{padding:3px 8px;background:var(--line);border:none;border-radius:4px;color:var(--txt);font-size:10px;cursor:pointer}
+.btn-clear-history{color:var(--red)}
+.history-notice{padding:8px 12px;border-bottom:1px solid var(--line);font-size:11px;color:var(--yellow);background:#2a2d2e}
+.history-search{padding:8px 12px;border-bottom:1px solid var(--line)}
+.history-search input{width:100%;padding:6px 8px;font-size:11px}
+.history-list{flex:1;overflow-y:auto}
+.history-empty{padding:32px 12px;text-align:center;color:var(--muted2);font-size:12px}
+.history-item{padding:10px 12px;border-bottom:1px solid var(--line2);cursor:pointer;width:100%;background:transparent;border-left:none;border-right:none;border-top:none;color:inherit;font:inherit;text-align:left}
+.history-item:hover{background:#2a2d2e}
+.history-sql{font-size:11px;color:var(--txt);font-family:'SF Mono',Monaco,Consolas,monospace;margin-bottom:4px;word-break:break-all;white-space:pre-wrap}
+.history-date{font-size:9px;color:var(--muted2)}
+.editor-container{flex:1;overflow:hidden;display:flex;background:var(--bg)}
+.gutter{padding:12px 8px 12px 12px;color:var(--muted2);font-family:'SF Mono',Monaco,Consolas,monospace;font-size:14px;line-height:1.6;text-align:right;user-select:none;background:var(--bg);border-right:1px solid var(--line)}
+#sqlInput{flex:1;border:none;border-radius:0;background:var(--bg);color:#d4d4d4;resize:none;padding:12px;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:14px;line-height:1.6;white-space:pre;overflow:auto}
+/* ===== 结果面板 ===== */
+.results-panel{display:flex;flex-direction:column;height:100%;background:var(--bg)}
+.loading-state,.error-state,.empty-state-rp{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;flex:1}
+.error-state{color:var(--red);padding:16px}
+.error-message{margin-top:12px;padding:12px;background:#3c1f1e;border-radius:4px;max-width:80%;overflow:auto;white-space:pre-wrap;font-size:12px}
+.spinner{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:10px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.success-message{padding:32px;text-align:center;color:var(--teal)}
+.results-header{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:var(--panel2);border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px}
+.results-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.results-tabs{display:flex;gap:4px}
+.result-tab{display:flex;align-items:center;gap:4px;padding:6px 12px;background:var(--line);border:none;border-radius:4px 4px 0 0;color:inherit;font:inherit;font-size:12px;cursor:pointer}
+.result-tab.active{background:var(--blue);color:#fff}
+.rows-count{font-size:11px;opacity:.8}
+.export-buttons{display:flex;gap:4px}
+.btn-export{padding:4px 10px;background:var(--line);border:1px solid #4e4e4e;border-radius:4px;color:var(--txt);font-size:11px;cursor:pointer}
+.btn-export:hover{background:#4e4e4e;border-color:var(--blue)}
+.results-info{display:flex;gap:16px;font-size:12px;color:var(--muted);align-items:center}
+.edit-hint{color:var(--teal);font-size:11px}
+.update-message{padding:8px 16px;font-size:12px;text-align:center}
+.update-message.success{background:#1e3a1e;color:var(--teal)}
+.update-message.error{background:#3c1f1e;color:var(--red)}
+.results-content{flex:1;overflow:auto}
+table.data{width:100%;border-collapse:collapse;font-size:13px}
+table.data thead{position:sticky;top:0;background:var(--panel2);z-index:1}
+table.data th{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);border-right:1px solid var(--line2);font-weight:500;white-space:nowrap}
+table.data th.primary-key{background:#2a2d3e}
+table.data th.primary-key .col-name::after{content:' 🔑';font-size:10px}
+.col-name{display:block}
+.col-type{display:block;font-size:10px;color:var(--muted);font-weight:normal}
+table.data td{padding:6px 12px;border-bottom:1px solid var(--line2);border-right:1px solid var(--line2);white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis}
+table.data tr:hover td{background:#2a2d2e}
+.cell-null{color:var(--muted);font-style:italic}
+.cell-number{color:#b5cea8}
+.cell-string{color:#ce9178}
+.cell-primary-key{background:#252835;color:var(--purple);font-weight:500}
+.cell-editable{cursor:pointer}
+.cell-editable:hover{background:#2a3a2e !important}
+.cell-editor{display:flex;flex-direction:column;gap:4px;padding:4px 0}
+.cell-editor input{width:100%;min-width:150px;padding:4px 8px;border-color:var(--blue);font-size:13px}
+.cell-editor input.is-null{opacity:.5;font-style:italic}
+.cell-editor-actions{display:flex;gap:4px}
+.cell-editor-actions button{padding:2px 8px;border:none;border-radius:3px;font-size:11px;cursor:pointer}
+.btn-save-c{background:var(--green);color:#fff}
+.btn-cancel-c{background:var(--red);color:#fff}
+.btn-null-c{background:var(--line);color:var(--txt)}
+.btn-null-c.active{background:var(--blue);color:#fff}
+/* ===== 数据网格 ===== */
+.grid-section{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.datagrid-container{display:flex;flex-direction:column;height:100%;background:var(--bg)}
+.datagrid-toolbar{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--panel2);border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px}
+.toolbar-left,.toolbar-right{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.btn-toolbar{padding:5px 10px;background:var(--line);border:1px solid #4e4e4e;border-radius:4px;color:var(--txt);font-size:12px;cursor:pointer}
+.btn-toolbar:disabled{opacity:.5;cursor:not-allowed}
+.btn-add{background:var(--green);border-color:#238736}
+.btn-delete{background:var(--red);border-color:#d9403a}
+.toolbar-divider{width:1px;height:20px;background:var(--line);margin:0 4px}
+.filter-input{width:150px;padding:5px 8px;font-size:12px}
+.filter-column{padding:5px 8px;font-size:12px}
+.btn-filter{padding:5px 10px;background:var(--line);border:1px solid #4e4e4e;border-radius:4px;color:var(--txt);font-size:12px;cursor:pointer}
+.message-banner{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:12px}
+.message-banner.success{background:#1e3a1e;color:var(--teal)}
+.message-banner.error{background:#3c1f1e;color:var(--red)}
+.message-banner button{background:none;border:none;color:inherit;font-size:16px;cursor:pointer}
+.readonly-banner{padding:8px 12px;background:#1f364b;border-top:1px solid #2f5f8a;border-bottom:1px solid #2f5f8a;color:#9cdcfe;font-size:12px}
+.datagrid-table-wrapper{flex:1;overflow:auto}
+.datagrid-loading,.datagrid-error,.datagrid-empty{display:flex;align-items:center;justify-content:center;height:200px;color:var(--muted);font-size:14px}
+.datagrid-error{color:var(--red)}
+.row-num{text-align:center;color:var(--muted2);font-size:11px;width:40px}
+.row-checkbox{text-align:center;width:40px}
+.empty-table-message{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:50px 20px;color:var(--muted)}
+.empty-icon{font-size:44px;margin-bottom:14px;opacity:.5}
+.table-name-hint{font-size:12px;color:var(--muted2);margin-top:8px}
+tr.new-row td{background:#1e2d3e !important}
+tr.selected-row td{background:#1a3a2e !important}
+.cell-input{width:100%;padding:4px 6px;background:var(--input);border:1px solid var(--blue);border-radius:3px;color:var(--txt);font-size:13px}
+.null-value{color:var(--muted);font-style:italic}
+.datagrid-pagination{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--panel2);border-top:1px solid var(--line)}
+.pagination-info{font-size:12px;color:var(--muted)}
+.pagination-controls{display:flex;align-items:center;gap:8px}
+.pagination-controls button{padding:4px 10px;background:var(--line);border:1px solid #4e4e4e;border-radius:4px;color:var(--txt);font-size:12px;cursor:pointer}
+.pagination-controls button:disabled{opacity:.5;cursor:not-allowed}
+.page-input{width:50px;text-align:center;padding:4px 6px;font-size:12px}
+/* ===== 表设计器 ===== */
+.design-section{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.table-designer{display:flex;flex-direction:column;height:100%;background:var(--bg);color:var(--txt)}
+.designer-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.designer-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}
+.table-name-input{padding:4px 10px;background:var(--input);border:1px solid var(--blue);border-radius:4px;color:var(--txt);font-size:13px;font-weight:600;min-width:150px}
+.designer-actions{display:flex;align-items:center;gap:12px}
+.unsaved-indicator{font-size:12px;color:#e8c16a;padding:4px 8px;background:#3a3a1e;border-radius:4px}
+.error-banner{padding:10px 16px;background:#3c1f1e;color:var(--red);font-size:12px;border-bottom:1px solid var(--line)}
+.designer-content{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.columns-section{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.section-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.section-header h3{margin:0;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--muted)}
+.btn-add{padding:4px 10px;font-size:11px}
+.columns-table-wrapper{flex:1;overflow:auto}
+.columns-table{width:100%;border-collapse:collapse;font-size:13px}
+.columns-table thead{position:sticky;top:0;background:var(--panel2);z-index:1}
+.columns-table th{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);border-right:1px solid var(--line2);font-weight:500;color:var(--muted);font-size:11px;text-transform:uppercase;white-space:nowrap}
+.columns-table td{padding:6px 8px;border-bottom:1px solid var(--line2);border-right:1px solid var(--line2);background:var(--bg)}
+.columns-table tbody tr:not(.original-col) td{background:#1a2e1e}
+.columns-table input[type=text],.columns-table select{width:100%;padding:4px 8px;font-size:12px}
+.btn-del-col{background:none;border:none;cursor:pointer;font-size:14px;padding:4px;opacity:.7}
+.btn-del-col:hover{opacity:1}
+.options-section{border-top:1px solid var(--line);background:var(--panel)}
+.options-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:16px}
+.option-item{display:flex;flex-direction:column;gap:6px}
+.option-item label{font-size:11px;color:var(--muted);text-transform:uppercase}
+.option-item select,.option-item input{padding:6px 10px;font-size:12px}
+/* ===== 结构对比 ===== */
+.sync-section{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.datasync-container{display:flex;flex-direction:column;height:100%;background:var(--bg);color:var(--txt);overflow:hidden}
+.datasync-header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.datasync-header h2{margin:0;font-size:18px;font-weight:600}
+.btn-close-x{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer}
+.btn-close-x:hover{color:var(--txt)}
+.datasync-body{flex:1;padding:16px 20px;overflow-y:auto}
+.sync-config{background:var(--panel);border-radius:8px;padding:16px;margin-bottom:16px}
+.mode-note{font-size:12px;color:var(--muted);margin-bottom:12px;padding:8px 10px;background:#2a2d2e;border-radius:4px}
+.config-row{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.config-item{display:flex;flex-direction:column;gap:6px}
+.config-item label{font-size:12px;color:var(--muted)}
+.config-item select{min-width:150px}
+.config-arrow{font-size:20px;color:var(--muted);padding-bottom:8px}
+.sync-error{background:#3c1f1e;border:1px solid var(--red);border-radius:4px;padding:12px 16px;margin-bottom:16px;font-size:12px;white-space:pre-wrap}
+.sync-result{display:flex;flex-direction:column;gap:16px}
+.sync-summary{display:flex;gap:20px;flex-wrap:wrap;background:var(--panel);border-radius:8px;padding:14px}
+.summary-item{display:flex;gap:8px;font-size:13px}
+.summary-label{color:var(--muted)}
+.summary-value{font-weight:600}
+.summary-value.add{color:var(--teal)}.summary-value.remove{color:var(--red)}.summary-value.modify{color:var(--yellow)}
+.diff-list{background:var(--panel);border-radius:8px;overflow:hidden}
+.diff-list-header{padding:10px 16px;border-bottom:1px solid var(--line)}
+.select-all{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+.diff-items{max-height:280px;overflow-y:auto}
+.diff-empty{padding:32px;text-align:center;color:var(--muted)}
+.diff-item{display:flex;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line2);cursor:pointer}
+.diff-item:hover{background:#2a2d2e}
+.diff-item.selected{background:#1a3a2e}
+.diff-item.add{border-left:3px solid var(--teal)}
+.diff-item.remove{border-left:3px solid var(--red)}
+.diff-item.modify{border-left:3px solid var(--yellow)}
+.diff-info{flex:1;cursor:pointer}
+.diff-table-name{font-weight:600;margin-bottom:4px}
+.diff-table-name::after{content:' ›';color:var(--muted);font-size:12px;margin-left:6px}
+.diff-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.status-badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.status-badge.add{background:#1e3a2e;color:var(--teal)}
+.status-badge.remove{background:#3c1f1e;color:var(--red)}
+.status-badge.modify{background:#3a3a2e;color:var(--yellow)}
+.diff-detail{font-size:11px;color:var(--muted)}
+.detail-panel{background:var(--panel);border-radius:8px;overflow:hidden}
+.detail-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.detail-title{display:flex;align-items:center;gap:12px;font-size:13px;font-weight:600}
+.detail-status-badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.detail-status-badge.add{background:#1e3a2e;color:var(--teal)}
+.detail-status-badge.remove{background:#3c1f1e;color:var(--red)}
+.detail-status-badge.modified{background:#3a3a2e;color:var(--yellow)}
+.detail-section{padding:14px 16px;border-bottom:1px solid var(--line2)}
+.detail-section h4{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase}
+.detail-info{margin:0;font-size:13px;color:var(--muted)}
+.diff-table-header,.diff-table-row{display:grid;grid-template-columns:1.4fr 1fr 1.8fr 1.8fr .9fr 1.3fr;gap:8px;padding:8px;font-size:12px}
+.diff-table-header{background:var(--bg);border-radius:4px 4px 0 0;font-weight:600;color:var(--muted)}
+.diff-table-row{border-bottom:1px solid var(--line2)}
+.diff-table-row.add{background:rgba(78,201,176,.1)}
+.diff-table-row.remove{background:rgba(244,135,113,.1)}
+.diff-table-row.modify{background:rgba(220,220,170,.1)}
+.sql-preview{margin:0;padding:12px;background:var(--bg);border-radius:4px;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px;color:var(--txt);overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+.sync-actions{display:flex;gap:12px;justify-content:flex-end}
+.btn-action{padding:10px 20px;border:none;border-radius:4px;font-size:13px;cursor:pointer}
+.btn-action:disabled{opacity:.5;cursor:not-allowed}
+.btn-copy,.btn-export{background:var(--line);color:var(--txt)}
+.btn-sync{background:var(--green);color:#fff}
+/* ===== 备份还原 ===== */
+.backup-section{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.backup-container{display:flex;flex-direction:column;height:100%;background:var(--bg)}
+.backup-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.backup-title{display:flex;gap:4px}
+.mode-tab{padding:6px 16px;background:transparent;border:none;color:var(--muted);font-size:12px;cursor:pointer;border-radius:4px}
+.mode-tab:hover{background:var(--line);color:var(--txt)}
+.mode-tab.active{background:var(--blue);color:#fff}
+.backup-content{flex:1;overflow-y:auto;padding:16px}
+.form-section{margin-bottom:18px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;margin-bottom:6px;font-size:12px;color:var(--muted)}
+.form-group select,.form-group input[type=text]{width:100%;max-width:420px}
+.field-label{font-size:12px;color:var(--muted);margin-bottom:6px}
+.radio-group{display:flex;gap:12px}
+.radio-item{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+.field-static{font-size:13px;color:var(--txt)}
+.tables-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;max-height:180px;overflow-y:auto;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;max-width:640px}
+.table-checkbox{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--line);border-radius:4px;cursor:pointer;font-size:12px}
+.file-selector{display:flex;gap:8px;max-width:520px}
+.file-selector input{flex:1}
+.btn-browse{padding:8px 16px;background:var(--line);border:1px solid #4e4e4e;border-radius:4px;color:var(--txt);font-size:12px;cursor:pointer;white-space:nowrap}
+.checkbox-item{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px}
+.action-section{padding:16px;background:var(--panel);border-radius:4px;max-width:640px}
+.btn-export-full,.btn-import-full{width:100%;padding:10px 16px;background:var(--green);border:none;border-radius:4px;color:#fff;font-size:13px;cursor:pointer;font-weight:500}
+.btn-import-full{background:var(--blue)}
+.btn-export-full:disabled,.btn-import-full:disabled{opacity:.5;cursor:not-allowed}
+.progress-bar{height:6px;background:var(--line);border-radius:3px;margin-top:12px;overflow:hidden}
+.progress-fill{height:100%;width:0;background:linear-gradient(90deg,#007acc,#00a8ff);transition:width .3s ease}
+.progress-status{margin-top:8px;font-size:11px;color:var(--muted);text-align:center}
+.result-message{margin-top:12px;padding:12px;border-radius:4px;font-size:12px}
+.result-message.success{background:rgba(78,201,176,.15);color:var(--teal)}
+.result-message.error{background:rgba(244,135,113,.15);color:var(--red)}
+.result-details{margin-top:6px;font-size:11px;opacity:.8;line-height:1.5}
+.btn-link{background:none;border:none;color:var(--blue);font-size:11px;cursor:pointer;padding:0}
+.btn-link:hover{text-decoration:underline}
+/* ===== 连接管理 ===== */
+.connection-manager{display:flex;flex-direction:column;height:100%}
+.connection-header{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+.connection-list{flex:1;overflow-y:auto}
+.connection-item{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;cursor:pointer;border-bottom:1px solid var(--line2)}
+.connection-item:hover{background:#2a2d2e}
+.connection-item.connected{background:#37373d;border-left:3px solid var(--blue)}
+.conn-info{flex:1;background:transparent;border:none;padding:0;text-align:left;color:inherit;font:inherit;cursor:pointer}
+.conn-name{display:block;font-size:13px;font-weight:500}
+.conn-host{display:block;font-size:11px;color:var(--muted)}
+.conn-actions{display:flex;gap:4px;opacity:.5}
+.connection-item:hover .conn-actions{opacity:1}
+.btn-icon{background:transparent;border:none;color:var(--txt);padding:4px 6px;cursor:pointer;border-radius:3px;font-size:12px}
+.btn-icon:hover:not(:disabled){background:var(--line)}
+.btn-icon:disabled{opacity:.5;cursor:not-allowed}
+.btn-danger{color:var(--red)}
+.test-result{padding:10px 12px;border-radius:4px;margin:8px 12px;font-size:12px}
+.test-result.success{background:#1e3a1e;color:var(--teal);border:1px solid #2d5a2d}
+.test-result.error{background:#3c1f1e;color:var(--red);border:1px solid #5a2d2d}
+/* ===== Schema 树 ===== */
+.schema-tree{height:100%;overflow-y:auto;display:flex;flex-direction:column}
+.schema-toolbar{padding:8px;border-bottom:1px solid var(--line)}
+.toolbar-btn{width:100%;padding:6px 12px;background:var(--green);color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer}
+.toolbar-btn:hover{background:#238736}
+.tree{padding:4px 0;flex:1}
+.tree-node-header{display:flex;align-items:center;padding:4px 16px;cursor:pointer;font-size:13px;width:100%;background:transparent;border:none;color:inherit;font:inherit;text-align:left}
+.tree-node-header:hover{background:#2a2d2e}
+.expand-icon{width:16px;font-size:10px;color:var(--muted)}
+.node-icon{margin-right:6px}
+.add-table-row{padding:4px 16px 4px 32px}
+.add-table-btn{display:flex;align-items:center;gap:6px;padding:4px 10px;background:transparent;border:1px dashed #4e4e4e;border-radius:4px;color:var(--muted);font-size:12px;cursor:pointer;width:100%}
+.add-table-btn:hover{background:#2a3a2e;border-color:var(--blue);color:var(--txt)}
+.loading-tables,.empty-tables{padding:4px 16px 4px 32px;font-size:12px;color:var(--muted)}
+.table-item{display:flex;align-items:center;padding:4px 16px 4px 32px;cursor:pointer;font-size:13px;width:100%;background:transparent;border:none;color:inherit;font:inherit;text-align:left}
+.table-item:hover{background:#2a2d2e}
+.table-icon{margin-right:6px}
+.table-name{flex:1;text-align:left}
+.table-item.view .table-name{color:var(--yellow)}
+.table-comment{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
+/* ===== 弹窗通用 ===== */
+.dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000}
+.dialog{background:var(--panel2);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);width:450px;max-width:90vw}
+.dialog-header{display:flex;justify-content:space-between;align-items:center;padding:16px;border-bottom:1px solid var(--line)}
+.dialog-header h3{margin:0;font-size:16px;font-weight:500}
+.dialog-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
+.dialog-body{padding:16px;max-height:60vh;overflow-y:auto}
+.dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px;border-top:1px solid var(--line)}
+.form-row{display:flex;gap:12px;margin-top:6px}
+.form-row .form-group{flex:1}
+.confirm-warning{color:var(--red);font-size:13px;margin-top:12px}
+.connection-form label{display:block;margin-bottom:12px}
+.connection-form label span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.connection-form input{width:100%}
+.form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.snippet-list{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.snippet-item{padding:10px 12px;background:var(--line);border:none;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;gap:4px;width:100%;color:inherit;font:inherit;text-align:left}
+.snippet-item:hover{background:#4e4e4e}
+.snippet-name{font-size:12px;font-weight:600;color:var(--txt)}
+.snippet-preview{font-size:10px;color:var(--muted);font-family:'SF Mono',Monaco,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 右键菜单 */
+.context-menu-overlay{position:fixed;inset:0;z-index:2000}
+.context-menu{position:fixed;background:var(--panel2);border:1px solid var(--line);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.4);min-width:160px;padding:4px 0;z-index:2001}
+.context-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:transparent;border:none;color:var(--txt);font-size:13px;text-align:left;cursor:pointer}
+.context-menu-item:hover{background:var(--line)}
+.context-menu-item.danger{color:var(--red)}
+.context-menu-item.danger:hover{background:#4a2a2a}
+.context-menu-divider{height:1px;background:var(--line);margin:4px 0}
+.menu-icon{width:16px;text-align:center}
+/* ===== 通知中心 ===== */
+.toast-stack{position:absolute;top:56px;right:16px;display:flex;flex-direction:column;gap:10px;z-index:2000;pointer-events:none}
+.toast{pointer-events:auto;min-width:280px;max-width:420px;padding:12px 14px;border-radius:8px;display:flex;justify-content:space-between;gap:12px;align-items:flex-start;box-shadow:0 12px 30px rgba(0,0,0,.28);color:#f4f4f4;font-size:13px;line-height:1.4}
+.toast.success{background:#1f4b2a;border:1px solid #2f7a45}
+.toast.error{background:#4b2424;border:1px solid #8a3a3a}
+.toast.info{background:#1f364b;border:1px solid #2f5f8a}
+.toast-close{background:transparent;border:none;color:inherit;cursor:pointer;font-size:16px;line-height:1;padding:0}
+.confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:2100}
+.confirm-dialog{width:420px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 18px 40px rgba(0,0,0,.35)}
+.confirm-header,.confirm-body,.confirm-actions{padding:16px 18px}
+.confirm-header{border-bottom:1px solid var(--line)}
+.confirm-header h3{margin:0;font-size:16px;color:#f4f4f4}
+.confirm-body{color:var(--txt);font-size:13px;line-height:1.5}
+.confirm-body p{margin:0}
+.confirm-actions{border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px}
+.btn-confirm-t{border:none;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer;color:#fff}
+.btn-confirm-t.danger{background:#c73b3b}
+.btn-confirm-t.info{background:var(--blue)}
+/* ===== 侧滑面板 ===== */
+.shell-panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:flex-end;z-index:2200}
+.shell-panel{width:420px;max-width:calc(100vw - 24px);height:100%;background:#202123;border-left:1px solid var(--line);box-shadow:-12px 0 32px rgba(0,0,0,.35);display:flex;flex-direction:column}
+.shell-panel-header{display:flex;justify-content:space-between;align-items:flex-start;padding:18px 20px;border-bottom:1px solid var(--line)}
+.shell-panel-eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.shell-panel-header h2{margin:4px 0 0;font-size:20px}
+.shell-panel-body{padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:20px}
+.shell-section{background:var(--panel);border:1px solid #333;border-radius:10px;padding:16px}
+.shell-section h3{margin:0 0 10px;font-size:14px}
+.shell-section p,.shell-section li{font-size:13px;line-height:1.6;color:var(--txt)}
+.shell-section ul,.shell-section ol{margin:0;padding-left:18px}
+.shell-section code{background:var(--input);padding:1px 6px;border-radius:3px;font-size:12px}
+/* ===== 批量进度面板 ===== */
+.batch-progress-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:2300}
+.batch-progress-panel{background:var(--panel);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);width:640px;max-height:80vh;display:flex;flex-direction:column}
+.batch-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.batch-header h3{margin:0;font-size:14px;font-weight:500}
+.batch-progress-bar{padding:16px;border-bottom:1px solid var(--line)}
+.progress-track{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.progress-text{margin-top:8px;font-size:12px;color:var(--txt);display:flex;align-items:center;gap:8px}
+.error-badge{background:var(--red);color:var(--bg);padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.batch-stats{display:flex;padding:12px 16px;background:var(--panel2);border-bottom:1px solid var(--line);gap:24px}
+.stat-item{display:flex;flex-direction:column;align-items:center}
+.stat-label{font-size:10px;color:var(--muted);text-transform:uppercase}
+.stat-value{font-size:18px;font-weight:600}
+.stat-value.success{color:var(--teal)}.stat-value.error{color:var(--red)}
+.batch-statements{flex:1;overflow-y:auto;padding:8px}
+.statement-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:4px;margin-bottom:4px;font-size:12px}
+.statement-item.current{background:#1e3a5e;border-left:3px solid var(--blue)}
+.statement-item.success{background:rgba(78,201,176,.1)}
+.statement-item.failed{background:rgba(244,135,113,.15)}
+.statement-item.pending{opacity:.6}
+.statement-number{width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:var(--line);border-radius:50%;font-size:10px;font-weight:600;color:var(--muted);flex:0 0 22px}
+.statement-item.current .statement-number{background:var(--blue);color:#fff}
+.statement-item.success .statement-number{background:var(--teal);color:var(--bg)}
+.statement-item.failed .statement-number{background:var(--red);color:var(--bg)}
+.statement-content{flex:1;min-width:0}
+.statement-preview{font-family:'SF Mono',Monaco,monospace;font-size:11px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.statement-status{font-size:10px;margin-top:2px}
+.statement-status.success{color:var(--teal)}.statement-status.error{color:var(--red)}
+/* ===== 评审面板 ===== */
+.review{width:340px;flex:0 0 340px;background:#202123;border:1px solid #333;border-radius:10px;padding:16px;color:#d4d4d4;font-size:13px;position:sticky;top:20px;max-height:900px;overflow-y:auto}
+.review h1{font-size:16px;margin:0 0 4px}
+.review .sub{font-size:11px;color:#888;margin-bottom:12px}
+.review h2{font-size:13px;margin:14px 0 8px;color:#9cdcfe;border-bottom:1px solid #333;padding-bottom:4px}
+.scenario-list{display:flex;flex-direction:column;gap:6px}
+.scenario-item{display:flex;align-items:center;gap:8px;cursor:pointer;background:#252526;border:1px solid #3e3e3e;border-radius:6px;padding:7px 10px}
+.scenario-item.active{border-color:var(--blue);background:#1e3a5e}
+.scenario-item input{margin:0}
+.scenario-item .sid{font-weight:600;font-size:12px}
+.scenario-item .sdesc{font-size:10px;color:#888}
+.navlist{display:flex;flex-wrap:wrap;gap:6px}
+.navlist button{background:#2d2d2d;border:1px solid #3e3e3e;color:#d4d4d4;border-radius:4px;padding:5px 8px;font-size:11px;cursor:pointer}
+.navlist button:hover{border-color:var(--blue)}
+.navlist button.cur{background:var(--blue);border-color:var(--blue);color:#fff}
+.feat-list{display:flex;flex-direction:column;gap:6px}
+.feat-list button{text-align:left;background:#252526;border:1px solid #3e3e3e;border-radius:6px;color:#d4d4d4;padding:7px 10px;font-size:11px;cursor:pointer}
+.feat-list button:hover{border-color:var(--teal)}
+.covstat{font-size:11px;color:#4ec9b0;background:#1e3a1e;border-radius:6px;padding:8px 10px;line-height:1.6}
+.kbd{background:#3c3c3c;border-radius:3px;padding:0 5px;font-size:11px}
+.hint{font-size:10px;color:#777;margin-top:8px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="stage">
+  <!-- ============ 桌面窗口画框（PAGE001 主工作台 · PRD §6.PAGE001） ============ -->
+  <div>
+    <div class="window-caption">桌面窗口画框：Tauri 窗口 1400×900（最小 1000×600，可缩放）—— 旧项目 tauri.conf.json</div>
+    <div class="window-frame">
+      <div class="titlebar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span><span class="t">QueryLab — 本地数据库工作台（HTML 评审原型）</span></div>
+      <div class="app">
+        <div class="toast-stack" id="toastStack"></div>
+        <header class="app-header">
+          <div class="logo">QueryLab</div>
+          <nav class="nav">
+            <button onclick="QL.openShell('settings')">设置</button>
+            <button onclick="QL.openShell('help')">帮助</button>
+            <button onclick="QL.openShell('about')">关于</button>
+          </nav>
+          <div class="version-info">v0.1.0 (dev)</div>
+        </header>
+        <main class="app-main">
+          <aside class="sidebar">
+            <div class="sidebar-section">
+              <div class="sidebar-header">连接 <span style="float:right" title="PAGE002">PAGE002</span></div>
+              <div id="connectionManager"></div>
+            </div>
+            <div class="sidebar-section">
+              <div class="sidebar-header">Schema <span style="float:right" title="PAGE003">PAGE003</span></div>
+              <div id="schemaTree"></div>
+            </div>
+          </aside>
+          <section class="workspace">
+            <div class="view-switcher" id="viewSwitcher"></div>
+            <div id="creatingIndicator"></div>
+            <div id="viewRoot" style="flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative"></div>
+          </section>
+        </main>
+        <footer class="app-footer"><span id="statusMsg">Ready</span><span>平台: macos</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 评审面板 ============ -->
+  <aside class="review">
+    <h1>QueryLab 评审面板</h1>
+    <div class="sub">逆向基线：docs/01_reverse/REVERSE_ANALYSIS.md ｜ 12 页面 · 57 功能全覆盖</div>
+
+    <h2>场景库（五态切换）</h2>
+    <div class="scenario-list" id="scenarioList"></div>
+
+    <h2>页面导航（PAGE001–PAGE012）</h2>
+    <div class="navlist" id="navList"></div>
+
+    <h2>功能抽查快捷入口</h2>
+    <div class="feat-list" id="featList"></div>
+
+    <h2>覆盖统计</h2>
+    <div class="covstat">
+      页面覆盖：12/12（100%）<br>
+      功能覆盖：57/57（100%，F020 以受限说明覆盖）<br>
+      状态/异常：加载·成功·失败(连接/SQL)·空·异常门禁 全覆盖
+    </div>
+    <div class="hint">
+      操作提示：所有按钮均为有效交互；右键侧栏表名打开表操作菜单；<span class="kbd">Ctrl+Enter</span> 执行 SQL、<span class="kbd">Ctrl+S</span> 格式化、<span class="kbd">Ctrl+H</span> 历史、<span class="kbd">Ctrl+K</span> 清空、<span class="kbd">F1</span> 片段。<br>
+      数据为内置模拟结果集，不依赖后端；导出会尝试浏览器下载并在状态栏/通知层反馈。
+    </div>
+  </aside>
+</div>
+
+<!-- 弹窗挂载点 -->
+<div id="modalRoot"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ==================== 模拟数据（对应旧项目 Tauri 后端返回结构） ==================== */
+  var CONNECTIONS = [
+    { id: 'c1', name: '本地开发库', driver: 'mysql', host: 'localhost', port: 3306, user: 'root', defaultDb: 'shop' },
+    { id: 'c2', name: '测试环境', driver: 'mysql', host: '192.168.1.50', port: 3306, user: 'qa', defaultDb: 'shop' }
+  ];
+  var SYSTEM_DBS = ['information_schema', 'mysql', 'performance_schema', 'sys'];
+  var DATABASES = ['analytics', 'logs', 'shop'];
+  var TABLES = {
+    shop: [
+      { name: 'users', type: 'BASE TABLE', comment: '用户表' },
+      { name: 'orders', type: 'BASE TABLE', comment: '订单表' },
+      { name: 'products', type: 'BASE TABLE', comment: '商品表' },
+      { name: 'v_user_summary', type: 'VIEW', comment: '用户汇总' }
+    ],
+    analytics: [
+      { name: 'daily_stats', type: 'BASE TABLE', comment: '每日统计(复合主键)' },
+      { name: 'events', type: 'BASE TABLE', comment: '事件表' }
+    ],
+    logs: [
+      { name: 'sys_log', type: 'BASE TABLE', comment: '系统日志(无主键)' },
+      { name: 'audit', type: 'BASE TABLE', comment: '审计表' }
+    ]
+  };
+  function C(name, type, nullable, extra, def, comment) {
+    return { name: name, column_type: type, nullable: nullable, extra: extra || null, default: def || null, comment: comment || null };
+  }
+  var SCHEMAS = {
+    'shop.users': {
+      columns: [C('id', 'int', false, 'auto_increment'), C('username', 'varchar(50)', false), C('email', 'varchar(100)', true), C('age', 'int', true), C('created_at', 'datetime', true, '', 'CURRENT_TIMESTAMP')],
+      indexes: [{ name: 'PRIMARY', unique: true, columns: ['id'] }, { name: 'idx_username', unique: false, columns: ['username'] }],
+      create_sql: "CREATE TABLE `users` (`id` int NOT NULL AUTO_INCREMENT, ... ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表'"
+    },
+    'shop.orders': {
+      columns: [C('id', 'bigint', false, 'auto_increment'), C('user_id', 'int', false), C('amount', 'decimal(10,2)', true), C('status', 'varchar(20)', true, '', 'pending'), C('created_at', 'datetime', true)],
+      indexes: [{ name: 'PRIMARY', unique: true, columns: ['id'] }],
+      create_sql: "CREATE TABLE `orders` (...) ENGINE=InnoDB"
+    },
+    'shop.products': {
+      columns: [C('id', 'int', false, 'auto_increment'), C('name', 'varchar(200)', false), C('price', 'decimal(10,2)', true), C('stock', 'int', true, '', '0')],
+      indexes: [{ name: 'PRIMARY', unique: true, columns: ['id'] }],
+      create_sql: "CREATE TABLE `products` (...) ENGINE=InnoDB"
+    },
+    'shop.v_user_summary': {
+      columns: [C('username', 'varchar(50)', true), C('order_count', 'int', true)],
+      indexes: [],
+      create_sql: 'CREATE VIEW `v_user_summary` AS SELECT ...'
+    },
+    'analytics.daily_stats': {
+      columns: [C('stat_date', 'date', false), C('metric', 'varchar(50)', false), C('value', 'bigint', true)],
+      indexes: [{ name: 'PRIMARY', unique: true, columns: ['stat_date', 'metric'] }],
+      create_sql: "CREATE TABLE `daily_stats` (...) PRIMARY KEY (`stat_date`,`metric`)"
+    },
+    'analytics.events': {
+      columns: [C('id', 'bigint', false, 'auto_increment'), C('event_type', 'varchar(50)', true), C('payload', 'json', true), C('ts', 'datetime', true)],
+      indexes: [{ name: 'PRIMARY', unique: true, columns: ['id'] }],
+      create_sql: "CREATE TABLE `events` (...) ENGINE=InnoDB"
+    },
+    'logs.sys_log': {
+      columns: [C('log_time', 'datetime', false), C('level', 'varchar(10)', true), C('message', 'text', true)],
+      indexes: [],
+      create_sql: "CREATE TABLE `sys_log` (...) -- 无主键"
+    },
+    'logs.audit': {
+      columns: [C('id', 'bigint', false, 'auto_increment'), C('action', 'varchar(50)', true), C('actor', 'varchar(50)', true), C('at', 'datetime', true)],
+      indexes: [{ name: 'PRIMARY', unique: true, columns: ['id'] }],
+      create_sql: "CREATE TABLE `audit` (...) ENGINE=InnoDB"
+    }
+  };
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function dstr(i) { return '2026-0' + (1 + (i % 6)) + '-' + pad(1 + (i % 27)) + ' ' + pad(i % 24) + ':' + pad((i * 7) % 60) + ':00'; }
+  var ROWGEN = {
+    'shop.users': function () {
+      var rows = [];
+      for (var i = 1; i <= 120; i++) { rows.push([i, 'user_' + i, 'u' + i + '@example.com', (i % 9 === 0) ? null : 18 + (i % 40), dstr(i)]); }
+      return rows;
+    },
+    'shop.orders': function () {
+      var rows = [];
+      var st = ['pending', 'paid', 'shipped', 'closed'];
+      for (var i = 1; i <= 87; i++) { rows.push([i, (i % 120) + 1, (i * 13.5).toFixed(2), st[i % 4], dstr(i)]); }
+      return rows;
+    },
+    'shop.products': function () {
+      var rows = [];
+      for (var i = 1; i <= 23; i++) { rows.push([i, '商品-' + pad(i), (i * 9.9).toFixed(2), (i % 7 === 0) ? 0 : i * 3]); }
+      return rows;
+    },
+    'shop.v_user_summary': function () {
+      var rows = [];
+      for (var i = 1; i <= 12; i++) { rows.push(['user_' + i, i * 2]); }
+      return rows;
+    },
+    'analytics.daily_stats': function () {
+      var rows = [];
+      var ms = ['pv', 'uv', 'order_count', 'revenue'];
+      for (var i = 1; i <= 40; i++) { rows.push(['2026-0' + (1 + (i % 6)) + '-' + pad(1 + (i % 27)), ms[i % 4], i * 137]); }
+      return rows;
+    },
+    'analytics.events': function () {
+      var rows = [];
+      var ts = ['login', 'click', 'view', 'scroll'];
+      for (var i = 1; i <= 156; i++) { rows.push([i, ts[i % 4], '{"id":' + i + '}', dstr(i)]); }
+      return rows;
+    },
+    'logs.sys_log': function () {
+      var rows = [];
+      var lv = ['INFO', 'WARN', 'ERROR'];
+      for (var i = 1; i <= 64; i++) { rows.push([dstr(i), lv[i % 3], '模拟日志条目 #' + i + '：服务运行正常/降级/告警']); }
+      return rows;
+    },
+    'logs.audit': function () {
+      var rows = [];
+      var ac = ['login', 'export', 'ddl_alter', 'delete_rows'];
+      for (var i = 1; i <= 9; i++) { rows.push([i, ac[i % 4], 'qa', dstr(i)]); }
+      return rows;
+    }
+  };
+  var SNIPPETS = [
+    { name: 'SELECT 基础', sql: 'SELECT * FROM table_name WHERE condition LIMIT 100;' },
+    { name: 'SELECT 指定列', sql: 'SELECT col1, col2, col3\nFROM table_name\nWHERE condition\nORDER BY col1 DESC\nLIMIT 100;' },
+    { name: 'INSERT', sql: 'INSERT INTO table_name (col1, col2, col3)\nVALUES (val1, val2, val3);' },
+    { name: 'INSERT 多行', sql: 'INSERT INTO table_name (col1, col2, col3)\nVALUES\n  (v1, v2, v3),\n  (v4, v5, v6);' },
+    { name: 'UPDATE', sql: 'UPDATE table_name\nSET col1 = val1, col2 = val2\nWHERE condition;' },
+    { name: 'UPDATE 多列', sql: 'UPDATE table_name\nSET col1 = v1, col2 = v2, col3 = v3\nWHERE id = 1;' },
+    { name: 'DELETE', sql: 'DELETE FROM table_name\nWHERE condition;' },
+    { name: 'DELETE 多条件', sql: 'DELETE FROM table_name\nWHERE condition1 AND condition2;' },
+    { name: 'CREATE TABLE', sql: 'CREATE TABLE table_name (\n  id INT PRIMARY KEY AUTO_INCREMENT,\n  col1 VARCHAR(255) NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;' },
+    { name: 'CREATE INDEX', sql: 'CREATE INDEX idx_col1 ON table_name (col1);' },
+    { name: 'ALTER TABLE', sql: 'ALTER TABLE table_name\nADD COLUMN new_col VARCHAR(255) AFTER existing_col;' },
+    { name: 'DROP TABLE', sql: 'DROP TABLE IF EXISTS table_name;' },
+    { name: 'TRUNCATE', sql: 'TRUNCATE TABLE table_name;' },
+    { name: 'JOIN', sql: 'SELECT a.*, b.col2\nFROM table_a a\nINNER JOIN table_b b ON a.id = b.a_id;' },
+    { name: 'LEFT JOIN', sql: 'SELECT a.*, b.col2\nFROM table_a a\nLEFT JOIN table_b b ON a.id = b.a_id;' },
+    { name: 'RIGHT JOIN', sql: 'SELECT a.*, b.col2\nFROM table_a a\nRIGHT JOIN table_b b ON a.id = b.a_id;' },
+    { name: 'GROUP BY', sql: 'SELECT col1, COUNT(*) AS count, SUM(amount) AS total\nFROM table_name\nGROUP BY col1\nHAVING count > 1;' },
+    { name: '子查询', sql: 'SELECT *\nFROM table_name\nWHERE id IN (\n  SELECT id FROM other_table WHERE status = 1\n);' },
+    { name: 'EXISTS 子查询', sql: 'SELECT *\nFROM table_a a\nWHERE EXISTS (\n  SELECT 1 FROM table_b b WHERE b.a_id = a.id\n);' },
+    { name: 'UNION', sql: 'SELECT col1, col2 FROM table_a\nUNION ALL\nSELECT col1, col2 FROM table_b;' },
+    { name: '事务', sql: 'START TRANSACTION;\n\n-- 你的 SQL 语句\n\nCOMMIT;\n-- 失败则 ROLLBACK;' },
+    { name: '批量插入', sql: 'INSERT INTO table_name (col1, col2)\nVALUES (?, ?), (?, ?);' },
+    { name: '创建视图', sql: 'CREATE VIEW view_name AS\nSELECT col1, col2 FROM table_name WHERE condition;' },
+    { name: 'WITH 递归', sql: 'WITH RECURSIVE cte AS (\n  SELECT base_column FROM table_name\n  UNION ALL\n  SELECT t.column FROM table_name t\n  INNER JOIN cte c ON t.parent_id = c.id\n)\nSELECT * FROM cte;' }
+  ];
+  var SENSITIVE = [/password/i, /secret/i, /token/i, /api[_-]?key/i, /access[_-]?key/i, /private[_-]?key/i, /credential/i];
+  var SQL_KEYWORDS = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'TABLE', 'ALTER', 'DROP', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'TRANSACTION', 'COMMIT', 'ROLLBACK'];
+  var DATA_TYPES = ['INT', 'BIGINT', 'VARCHAR', 'CHAR', 'TEXT', 'DATETIME', 'DATE', 'TIMESTAMP', 'DECIMAL', 'FLOAT', 'DOUBLE', 'JSON', 'BLOB', 'BOOLEAN', 'ENUM'];
+
+  /* ==================== 全局状态 ==================== */
+  var S = {
+    scenario: 'success',            // success | loading | conn-fail | sql-error | empty | exception
+    connections: CONNECTIONS.slice(),
+    selectedConn: null,
+    databases: [],
+    expanded: {},                   // db -> true
+    tablesCache: {},                // db -> tables
+    viewMode: 'query',
+    currentTable: null,             // 'db.table'
+    creatingNewTable: false,
+    targetDatabase: '',
+    sql: 'SELECT * FROM `shop`.`users` LIMIT 50;',
+    batchMode: false,
+    useTransaction: false,
+    showHistory: false,
+    persistHistory: false,
+    historyNotice: '',
+    history: [
+      { sql: 'SELECT * FROM `shop`.`orders` WHERE status = \'paid\';', date: '2026/9/1 14:22:01' },
+      { sql: 'UPDATE `shop`.`products` SET stock = stock + 10 WHERE id = 3;', date: '2026/9/1 11:08:44' },
+      { sql: 'SHOW CREATE TABLE `shop`.`users`;', date: '2026/8/31 18:40:12' }
+    ],
+    query: null,                    // {queryId, elapsedMs, sets:[{columns,rows,affectedRows,editable}]}
+    queryState: 'empty',            // empty | loading | error | done
+    queryError: null,
+    editingCell: null,              // {row,col,value,isNull}（结果面板）
+    activeSetIndex: 0,
+    editableTableName: '',
+    // 网格
+    gridPage: 1,
+    gridPageSize: 50,
+    gridFilter: '',
+    gridFilterCol: 'all',
+    gridMessage: null,
+    gridEditing: null,              // {row,col,value,isNew}
+    gridNewRows: [],
+    gridSelected: {},
+    // 设计器
+    designer: null,                 // {mode, tableName, newTableName, columns, tableInfo, hasChanges, error, original}
+    // 结构对比
+    sync: { src: '', dst: '', comparing: false, result: null, error: null, selected: {}, detail: null },
+    // 备份
+    backup: { tab: 'export', db: '', tables: [], selectedTables: [], exporting: false, progress: 0, status: '', result: null, importFile: '', dropExisting: false, importing: false, importProgress: 0, importStatus: '', importResult: null },
+    shell: null,
+    connForm: null,                 // {mode, form:{...}, testing, saving, testResult}
+    connTestResult: null,
+    contextMenu: null,
+    schemaError: null,
+    schemaLoading: false
+  };
+
+  /* ==================== 工具 ==================== */
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function status(msg) { $('statusMsg').textContent = msg; }
+  var toastSeq = 0;
+  function toast(msg, level) {
+    level = level || 'success';
+    var id = 't' + (++toastSeq);
+    var div = document.createElement('div');
+    div.className = 'toast ' + level;
+    div.id = id;
+    div.innerHTML = '<span>' + esc(msg) + '</span><button class="toast-close" onclick="QL.closeToast(\'' + id + '\')">&times;</button>';
+    $('toastStack').appendChild(div);
+    var ms = level === 'error' ? 4500 : 3200;
+    setTimeout(function () { QL.closeToast(id); }, ms);
+  }
+  var confirmResolver = null;
+  function confirmAction(opt) {
+    return new Promise(function (resolve) {
+      if (confirmResolver) { confirmResolver(false); }
+      confirmResolver = resolve;
+      var html = '<div class="confirm-overlay" onclick="QL.confirmOverlayClick(event)">' +
+        '<div class="confirm-dialog" role="dialog" aria-modal="true">' +
+        '<div class="confirm-header"><h3>' + esc(opt.title) + '</h3></div>' +
+        '<div class="confirm-body"><p>' + esc(opt.message) + '</p></div>' +
+        '<div class="confirm-actions">' +
+        '<button class="btn-secondary btn" onclick="QL.resolveConfirm(false)">' + esc(opt.cancelLabel || '取消') + '</button>' +
+        '<button class="btn-confirm-t ' + (opt.tone || 'danger') + '" onclick="QL.resolveConfirm(true)">' + esc(opt.confirmLabel || '确认') + '</button>' +
+        '</div></div></div>';
+      $('modalRoot').insertAdjacentHTML('beforeend', html);
+    });
+  }
+  function closeModal(id) { var n = $(id); if (n) n.parentNode.removeChild(n); }
+  function anyModal(prefix) {
+    var nodes = $('modalRoot').children;
+    for (var i = 0; i < nodes.length; i++) { if (nodes[i].id && nodes[i].id.indexOf(prefix) === 0) return nodes[i]; }
+    return null;
+  }
+  function singlePK(schema) {
+    if (!schema) return null;
+    var pk = null;
+    for (var i = 0; i < schema.indexes.length; i++) {
+      if (schema.indexes[i].name === 'PRIMARY') { pk = schema.indexes[i]; break; }
+    }
+    if (!pk || pk.columns.length !== 1) return null;
+    return pk.columns[0];
+  }
+  function tableRows(key) {
+    if (!ROWGEN[key]) return [];
+    if (!ROWGEN[key + ':cache']) { ROWGEN[key + ':cache'] = ROWGEN[key](); }
+    return ROWGEN[key + ':cache'];
+  }
+  function randomId8() {
+    var s = '';
+    var hex = '0123456789abcdef';
+    for (var i = 0; i < 8; i++) s += hex[Math.floor(Math.random() * 16)];
+    return s;
+  }
+  function isSensitive(sql) {
+    for (var i = 0; i < SENSITIVE.length; i++) { if (SENSITIVE[i].test(sql)) return true; }
+    return false;
+  }
+  function download(filename, content) {
+    try {
+      var blob = new Blob([content], { type: 'text/plain' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 500);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* ==================== 场景库 ==================== */
+  var SCENARIOS = [
+    { id: 'success', name: '默认·成功', desc: '正常数据、可编辑表、连接测试成功' },
+    { id: 'loading', name: '加载中', desc: '执行中 spinner / 网格与比较加载态保持' },
+    { id: 'conn-fail', name: '失败·连接失败', desc: 'conn_test 连接失败/超时；查询报「连接失败」' },
+    { id: 'sql-error', name: '失败·SQL 报错', desc: '1064 语法错误，结果面板展示错误详情' },
+    { id: 'empty', name: '空数据', desc: '查询 0 行、网格空表、历史为空可演示' },
+    { id: 'exception', name: '异常·门禁', desc: '无单列主键只读、敏感 SQL 历史拦截' }
+  ];
+
+  /* ==================== 评审面板 ==================== */
+  function renderScenarioList() {
+    var html = '';
+    SCENARIOS.forEach(function (sc) {
+      html += '<label class="scenario-item' + (S.scenario === sc.id ? ' active' : '') + '">' +
+        '<input type="radio" name="sc" ' + (S.scenario === sc.id ? 'checked' : '') + ' onchange="QL.setScenario(\'' + sc.id + '\')">' +
+        '<span><span class="sid">' + sc.name + '</span><br><span class="sdesc">' + sc.desc + '</span></span></label>';
+    });
+    $('scenarioList').innerHTML = html;
+  }
+  var NAV_PAGES = [
+    { id: 'PAGE001', label: '001 壳', act: "QL.setViewMode('query')" },
+    { id: 'PAGE002', label: '002 连接', act: 'QL.openConnForm(\'new\')' },
+    { id: 'PAGE003', label: '003 Schema', act: "QL.toggleDb('shop')" },
+    { id: 'PAGE004', label: '004 SQL查询', act: "QL.setViewMode('query')" },
+    { id: 'PAGE005', label: '005 结果面板', act: 'QL.executeQuery()' },
+    { id: 'PAGE006', label: '006 数据网格', act: "QL.openTable('shop','users')" },
+    { id: 'PAGE007', label: '007 表设计', act: "QL.openTable('shop','users');QL.setViewMode('design')" },
+    { id: 'PAGE008', label: '008 结构对比', act: "QL.setViewMode('sync')" },
+    { id: 'PAGE009', label: '009 备份还原', act: "QL.setViewMode('backup')" },
+    { id: 'PAGE010', label: '010 通知中心', act: 'QL.demoNotify()' },
+    { id: 'PAGE011', label: '011 帮助', act: "QL.openShell('help')" },
+    { id: 'PAGE012', label: '012 批量进度', act: 'QL.demoBatch()' }
+  ];
+  function renderNavList() {
+    var html = '';
+    NAV_PAGES.forEach(function (p) {
+      html += '<button data-act="' + esc(p.act) + '">' + p.label + '</button>';
+    });
+    $('navList').innerHTML = html;
+    Array.prototype.forEach.call($('navList').children, function (btn) {
+      btn.onclick = function () { try { eval(btn.getAttribute('data-act')); } catch (e) { toast('演示动作失败: ' + e.message, 'error'); } };
+    });
+  }
+  var FEATS = [
+    { label: 'F003 测试连接·成功（延迟/版本/用户）', act: "QL.testConnDemo('ok')" },
+    { label: 'F003 测试连接·失败（连接超时 5 秒）', act: "QL.testConnDemo('fail')" },
+    { label: 'F004/F052 危险确认（删除连接）', act: 'QL.demoDangerConfirm()' },
+    { label: 'F008 新建数据库（字符集联动排序规则）', act: 'QL.openCreateDb()' },
+    { label: 'F013 表右键菜单（删除/清空/重命名）', act: "QL.demoContextMenu()" },
+    { label: 'F015 未连接执行 SQL → 请先选择连接', act: 'QL.demoNoConn()' },
+    { label: 'F016 批量模式 + 事务包装', act: 'QL.demoBatchMode()' },
+    { label: 'F017 SQL 格式化', act: 'QL.formatSql()' },
+    { label: 'F018 片段库（24 项）', act: 'QL.openSnippets()' },
+    { label: 'F019 历史·敏感 SQL 拦截提示', act: "QL.demoSensitiveHistory()" },
+    { label: 'F024 结果导出 CSV/JSON', act: 'QL.demoExportResult()' },
+    { label: 'F025 结果单元格编辑（单表直查门禁）', act: "QL.demoEditableResult()" },
+    { label: 'F033 网格删除选中行（确认）', act: "QL.openTable('shop','users');QL.toastMsg('请勾选行后点「- 删除」','info')" },
+    { label: 'F037 只读表演示（无单列主键 sys_log）', act: "QL.openTable('logs','sys_log')" },
+    { label: 'F036 空表演示（场景切空数据后进网格）', act: 'QL.demoEmptyGrid()' },
+    { label: 'F039 编辑表 diff → ALTER 预览', act: "QL.demoAlterPreview()" },
+    { label: 'F041 结构校验错误文案', act: 'QL.demoValidateError()' },
+    { label: 'F043 结构对比·源=目标拦截', act: 'QL.demoSyncSame()' },
+    { label: 'F045 差异详情面板 + SQL 预览', act: 'QL.demoSyncDetail()' },
+    { label: 'F047 执行结构变更（danger 确认）', act: 'QL.demoSyncExec()' },
+    { label: 'F048 导出取消路径（已取消导出）', act: 'QL.demoBackupCancel()' },
+    { label: 'F049 导入还原（选文件+先删表）', act: "QL.setViewMode('backup');QL.backupSwitch('import')" },
+    { label: 'F051 Toast 三级通知', act: 'QL.demoNotify()' },
+    { label: 'PAGE012 批量执行进度（未接线演示）', act: 'QL.demoBatch()' }
+  ];
+  function renderFeatList() {
+    var html = '';
+    FEATS.forEach(function (f) {
+      html += '<button data-act="' + esc(f.act) + '">' + esc(f.label) + '</button>';
+    });
+    $('featList').innerHTML = html;
+    Array.prototype.forEach.call($('featList').children, function (btn) {
+      btn.onclick = function () { try { eval(btn.getAttribute('data-act')); } catch (e) { toast('演示动作失败: ' + e.message, 'error'); } };
+    });
+  }
+
+  /* ==================== 连接管理（PAGE002） ==================== */
+  function renderConnections() {
+    var html = '<div class="connection-manager">';
+    html += '<div class="connection-header"><span>连接</span><button class="btn-icon" onclick="QL.openConnForm(\'new\')" title="新建连接">+</button></div>';
+    if (S.connTestResult && !S.connForm) {
+      html += '<div class="test-result ' + (S.connTestResult.success ? 'success' : 'error') + '"><pre style="margin:0;white-space:pre-wrap;font-family:inherit">' + esc(S.connTestResult.message) + '</pre></div>';
+    }
+    html += '<div class="connection-list">';
+    if (S.connections.length === 0) {
+      html += '<div class="empty-state">暂无连接，点击 + 新建</div>';
+    }
+    S.connections.forEach(function (c) {
+      var connected = S.selectedConn && S.selectedConn.id === c.id;
+      html += '<div class="connection-item' + (connected ? ' connected' : '') + '">' +
+        '<button type="button" class="conn-info" onclick="QL.selectConn(\'' + c.id + '\')">' +
+        '<span class="conn-name">' + esc(c.name || c.host) + '</span>' +
+        '<span class="conn-host">' + esc(c.host) + ':' + c.port + '</span></button>' +
+        '<div class="conn-actions">' +
+        '<button class="btn-icon" title="编辑连接" onclick="QL.openConnForm(\'edit\',\'' + c.id + '\')">✎</button>' +
+        '<button class="btn-icon" title="测试连接" onclick="QL.testConnById(\'' + c.id + '\')">⚡</button>' +
+        '<button class="btn-icon btn-danger" title="删除连接" onclick="QL.deleteConn(\'' + c.id + '\')">✕</button>' +
+        '</div></div>';
+    });
+    html += '</div></div>';
+    $('connectionManager').innerHTML = html;
+  }
+  function selectConn(id) {
+    var c = null;
+    S.connections.forEach(function (x) { if (x.id === id) c = x; });
+    S.selectedConn = c;
+    resetWorkspace();
+    renderConnections();
+    if (!c) { S.databases = []; status('No connection'); renderSchema(); renderSwitcher(); renderView(); return; }
+    status('Connected to ' + (c.name || c.host));
+    loadDatabases();
+  }
+  function resetWorkspace() {
+    S.query = null; S.queryState = 'empty'; S.queryError = null;
+    S.currentTable = null; S.viewMode = 'query';
+    S.creatingNewTable = false; S.targetDatabase = ''; S.editableTableName = '';
+    S.gridPage = 1; S.gridFilter = ''; S.gridFilterCol = 'all'; S.gridSelected = {}; S.gridNewRows = [];
+    S.sync = { src: '', dst: '', comparing: false, result: null, error: null, selected: {}, detail: null };
+    S.backup.tab = 'export'; S.backup.db = ''; S.backup.tables = []; S.backup.selectedTables = []; S.backup.result = null; S.backup.importResult = null;
+  }
+  function loadDatabases() {
+    if (!S.selectedConn) return;
+    S.schemaLoading = true; S.schemaError = null;
+    renderSchema();
+    setTimeout(function () {
+      S.schemaLoading = false;
+      if (S.scenario === 'conn-fail') {
+        S.schemaError = '连接失败: Can\'t connect to MySQL server on \'192.168.1.50:3306\' (111)';
+        S.databases = [];
+      } else {
+        S.databases = DATABASES.slice();
+      }
+      S.tablesCache = {}; S.expanded = {};
+      renderSchema();
+    }, 400);
+  }
+  function openConnForm(mode, id) {
+    var c = null;
+    if (mode === 'edit') { S.connections.forEach(function (x) { if (x.id === id) c = x; }); }
+    S.connForm = {
+      mode: mode, editingId: id || '', testing: false, saving: false, testResult: null,
+      form: {
+        name: c ? c.name : '', host: c ? c.host : '', port: c ? c.port : 3306,
+        user: c ? c.user : '', password: ''
+      }
+    };
+    renderConnForm();
+  }
+  function renderConnForm() {
+    if (!S.connForm) return;
+    var f = S.connForm;
+    var id = 'connFormModal';
+    closeModal(id);
+    var tr = f.testResult ? '<div class="test-result ' + (f.testResult.success ? 'success' : 'error') + '"><pre style="margin:0;white-space:pre-wrap;font-family:inherit">' + esc(f.testResult.message) + '</pre></div>' : '';
+    var html = '<div class="dialog-overlay" id="' + id + '" onclick="QL.connFormOverlay(event)"><div class="dialog connection-form" role="dialog" aria-modal="true" style="width:400px">' +
+      '<h3 style="margin:0 0 16px;font-size:16px">' + (f.mode === 'edit' ? '编辑连接' : '新建连接') + '</h3>' + tr +
+      '<form onsubmit="QL.saveConn(event)">' +
+      '<label><span>连接名称</span><input type="text" id="cf-name" value="' + esc(f.form.name) + '" placeholder="例如：生产 MySQL" required></label>' +
+      '<label><span>主机</span><input type="text" id="cf-host" value="' + esc(f.form.host) + '" placeholder="localhost" required></label>' +
+      '<label><span>端口</span><input type="number" id="cf-port" value="' + esc(f.form.port) + '" required></label>' +
+      '<label><span>用户</span><input type="text" id="cf-user" value="' + esc(f.form.user) + '" placeholder="root" required></label>' +
+      '<label><span>密码</span><input type="password" id="cf-pass" value="' + esc(f.form.password) + '" placeholder="' + (f.mode === 'edit' ? '（编辑时密码不回显，不重输将丢失，见验收备注）' : '') + '"></label>' +
+      '<div class="form-actions">' +
+      '<button type="button" class="btn btn-secondary" onclick="QL.closeConnForm()">取消</button>' +
+      '<button type="button" class="btn btn-secondary" onclick="QL.testConnForm()" ' + (f.testing ? 'disabled' : '') + '>' + (f.testing ? '测试中...' : '测试') + '</button>' +
+      '<button type="submit" class="btn btn-primary" ' + (f.saving ? 'disabled' : '') + '>' + (f.saving ? '保存中...' : '保存') + '</button>' +
+      '</div></form></div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+  }
+  function closeConnForm() { S.connForm = null; closeModal('connFormModal'); }
+  function connFormOverlay(e) { if (e.target === e.currentTarget) closeConnForm(); }
+  function readConnForm() {
+    return { name: $('cf-name').value, host: $('cf-host').value, port: parseInt($('cf-port').value, 10) || 3306, user: $('cf-user').value, password: $('cf-pass').value };
+  }
+  function syncConnForm() {
+    var f = S.connForm;
+    if (!f || !$('cf-name')) return;
+    f.form.name = $('cf-name').value;
+    f.form.host = $('cf-host').value;
+    f.form.port = $('cf-port').value;
+    f.form.user = $('cf-user').value;
+    f.form.password = $('cf-pass').value;
+  }
+  function saveConn(e) {
+    if (e) e.preventDefault();
+    var f = S.connForm; if (!f) return;
+    syncConnForm();
+    f.saving = true; f.testResult = null; renderConnForm();
+    setTimeout(function () {
+      var form = readConnForm();
+      if (f.mode === 'edit') {
+        S.connections = S.connections.map(function (c) { return c.id === f.editingId ? Object.assign({}, c, form) : c; });
+      } else {
+        var id = 'c' + (S.connections.length + 1) + '-' + randomId8();
+        S.connections.push(Object.assign({ id: id, driver: 'mysql', defaultDb: null }, form));
+      }
+      closeConnForm();
+      renderConnections();
+      toast('连接已保存（密码已写入系统钥匙串，connections.json 不落密码）');
+      status('Ready');
+    }, 400);
+  }
+  function testConnResultFor() {
+    if (S.scenario === 'conn-fail') {
+      return { success: false, message: '连接失败: 连接超时（5秒）' };
+    }
+    return { success: true, message: '连接成功!\n延迟: 12ms\n版本: 8.0.36\n用户: root' };
+  }
+  function testConnById(id) {
+    var c = null; S.connections.forEach(function (x) { if (x.id === id) c = x; });
+    if (!c) return;
+    S.connTestResult = null; renderConnections();
+    toast('正在测试连接 ' + c.name + ' ...', 'info');
+    setTimeout(function () {
+      S.connTestResult = testConnResultFor();
+      renderConnections();
+    }, 500);
+  }
+  function testConnForm() {
+    var f = S.connForm; if (!f) return;
+    syncConnForm();
+    f.testing = true; f.testResult = null; renderConnForm();
+    setTimeout(function () {
+      f.testing = false; f.testResult = testConnResultFor(); renderConnForm();
+    }, 700);
+  }
+  function testConnDemo(kind) {
+    S.connTestResult = kind === 'ok'
+      ? { success: true, message: '连接成功!\n延迟: 12ms\n版本: 8.0.36\n用户: root' }
+      : { success: false, message: '连接失败: 连接超时（5秒）' };
+    renderConnections();
+  }
+  function deleteConn(id) {
+    var c = null; S.connections.forEach(function (x) { if (x.id === id) c = x; });
+    if (!c) return;
+    confirmAction({
+      title: '删除连接',
+      message: '确定要删除连接 “' + (c.name || c.host) + '” 吗？',
+      confirmLabel: '删除', cancelLabel: '取消', tone: 'danger'
+    }).then(function (ok) {
+      if (!ok) return;
+      S.connections = S.connections.filter(function (x) { return x.id !== id; });
+      if (S.selectedConn && S.selectedConn.id === id) { S.selectedConn = null; resetWorkspace(); status('No connection'); }
+      S.connTestResult = null;
+      renderConnections(); renderSchema(); renderSwitcher(); renderView();
+      toast('连接已删除');
+    });
+  }
+  function demoDangerConfirm() {
+    confirmAction({ title: '删除连接', message: '确定要删除连接 “本地开发库” 吗？', confirmLabel: '删除', tone: 'danger' })
+      .then(function (ok) { toast(ok ? '已确认删除（演示）' : '已取消（遮罩/Esc/取消按钮均为取消）', 'info'); });
+  }
+  function demoNoConn() {
+    var keep = S.selectedConn;
+    S.selectedConn = null;
+    executeQuery();
+    setTimeout(function () { S.selectedConn = keep; renderConnections(); }, 50);
+  }
+
+  /* ==================== Schema 树（PAGE003） ==================== */
+  function renderSchema() {
+    var html = '<div class="schema-tree">';
+    if (!S.selectedConn) {
+      html += '<div class="empty-state">请先选择连接</div>';
+    } else if (S.schemaLoading) {
+      html += '<div class="loading">加载中...</div>';
+    } else if (S.schemaError) {
+      html += '<div class="error">' + esc(S.schemaError) + '</div>';
+    } else {
+      html += '<div class="schema-toolbar"><button class="toolbar-btn" onclick="QL.openCreateDb()">+ 数据库</button></div>';
+      html += '<div class="tree">';
+      if (S.databases.length === 0) html += '<div class="empty-state">无可用数据库</div>';
+      S.databases.forEach(function (db) {
+        var expanded = !!S.expanded[db];
+        html += '<div class="tree-node"><button type="button" class="tree-node-header" onclick="QL.toggleDb(\'' + db + '\')">' +
+          '<span class="expand-icon">' + (expanded ? '▼' : '▶') + '</span><span class="node-icon">📁</span><span class="node-label">' + esc(db) + '</span></button>';
+        if (expanded) {
+          html += '<div class="tree-children"><div class="add-table-row"><button class="add-table-btn" onclick="QL.createTable(\'' + db + '\')" title="新建表"><span>+</span><span>新建表</span></button></div>';
+          var tables = S.tablesCache[db];
+          if (!tables) {
+            html += '<div class="loading-tables">加载中...</div>';
+          } else if (tables.length === 0) {
+            html += '<div class="empty-tables">无表</div>';
+          } else {
+            tables.forEach(function (t) {
+              var isView = t.type === 'VIEW';
+              html += '<button type="button" class="table-item' + (isView ? ' view' : '') + '" onclick="QL.openTable(\'' + db + '\',\'' + t.name + '\')" oncontextmenu="QL.tableContextMenu(event,\'' + db + '\',\'' + t.name + '\',' + isView + ')">' +
+                '<span class="table-icon">' + (isView ? '👁️' : '📊') + '</span><span class="table-name">' + esc(t.name) + '</span>' +
+                (t.comment ? '<span class="table-comment" title="' + esc(t.comment) + '">' + esc(t.comment) + '</span>' : '') +
+                '</button>';
+            });
+          }
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    $('schemaTree').innerHTML = html;
+  }
+  function toggleDb(db) {
+    if (!S.selectedConn) return;
+    if (S.expanded[db]) { delete S.expanded[db]; renderSchema(); return; }
+    S.expanded[db] = true;
+    renderSchema();
+    if (!S.tablesCache[db]) {
+      setTimeout(function () {
+        if (S.scenario === 'conn-fail') { S.tablesCache[db] = []; }
+        else { S.tablesCache[db] = (TABLES[db] || []).slice(); }
+        renderSchema();
+      }, 350);
+    }
+  }
+  function refreshDb(db) { delete S.tablesCache[db]; if (!S.expanded[db]) S.expanded[db] = true; renderSchema(); }
+  function openCreateDb() {
+    var id = 'createDbModal';
+    var html = '<div class="dialog-overlay" id="' + id + '" onclick="QL.dbOverlay(event)"><div class="dialog" role="dialog" aria-modal="true">' +
+      '<div class="dialog-header"><h3>新建数据库</h3><button class="dialog-close" onclick="QL.closeCreateDb()">&times;</button></div>' +
+      '<div class="dialog-body">' +
+      '<div class="form-group"><label for="create-db-name">数据库名</label><input type="text" id="create-db-name" placeholder="my_database"></div>' +
+      '<div class="form-row"><div class="form-group"><label for="create-db-charset">字符集</label>' +
+      '<select id="create-db-charset" onchange="QL.charsetChange()"><option value="utf8mb4">utf8mb4 (推荐)</option><option value="utf8">utf8</option><option value="latin1">latin1</option><option value="gbk">gbk (中文)</option><option value="big5">big5 (繁体中文)</option><option value="ascii">ascii</option></select></div>' +
+      '<div class="form-group"><label for="create-db-collation">排序规则</label><select id="create-db-collation"></select></div></div>' +
+      '</div>' +
+      '<div class="dialog-footer"><button class="btn btn-secondary" onclick="QL.closeCreateDb()">取消</button><button class="btn btn-primary" onclick="QL.createDb()">创建</button></div>' +
+      '</div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+    charsetChange();
+  }
+  var COLLATIONS = {
+    utf8mb4: ['utf8mb4_unicode_ci', 'utf8mb4_general_ci', 'utf8mb4_0900_ai_ci'],
+    utf8: ['utf8_unicode_ci', 'utf8_general_ci'],
+    latin1: ['latin1_swedish_ci', 'latin1_general_ci'],
+    gbk: ['gbk_chinese_ci'], big5: ['big5_chinese_ci'], ascii: ['ascii_general_ci']
+  };
+  function charsetChange() {
+    var cs = $('create-db-charset').value;
+    var opts = COLLATIONS[cs] || [];
+    $('create-db-collation').innerHTML = opts.map(function (c) { return '<option value="' + c + '">' + c + (c.indexOf('unicode') >= 0 ? ' (推荐)' : '') + '</option>'; }).join('');
+  }
+  function dbOverlay(e) { if (e.target === e.currentTarget) closeCreateDb(); }
+  function closeCreateDb() { closeModal('createDbModal'); }
+  function createDb() {
+    var name = $('create-db-name').value.trim();
+    if (!name) { toast('请输入数据库名称', 'error'); return; }
+    if (!S.selectedConn) { toast('请先连接数据库', 'error'); return; }
+    var cs = $('create-db-charset').value, co = $('create-db-collation').value;
+    closeCreateDb();
+    toast("数据库 '" + name + "' 创建成功（CHARACTER SET " + cs + ' COLLATE ' + co + '）');
+    DATABASES.push(name); TABLES[name] = [];
+    S.databases.push(name);
+    S.expanded[name] = true; S.tablesCache[name] = [];
+    renderSchema();
+  }
+  function tableContextMenu(e, db, table, isView) {
+    e.preventDefault(); e.stopPropagation();
+    closeContextMenu();
+    var x = Math.min(e.clientX, window.innerWidth - 180), y = Math.min(e.clientY, window.innerHeight - 190);
+    var html = '<div class="context-menu-overlay" id="ctxOverlay" onclick="QL.closeContextMenu()"><div class="context-menu" style="left:' + x + 'px;top:' + y + 'px">' +
+      '<button class="context-menu-item" onclick="QL.ctxRefresh(\'' + db + '\')"><span class="menu-icon">🔄</span> 刷新</button>' +
+      '<button class="context-menu-item" onclick="QL.ctxRename(\'' + db + '\',\'' + table + '\',' + isView + ')"><span class="menu-icon">✏️</span> 重命名表</button>' +
+      '<button class="context-menu-item" onclick="QL.ctxTruncate(\'' + db + '\',\'' + table + '\',' + isView + ')"><span class="menu-icon">🗑️</span> 清空表数据</button>' +
+      '<div class="context-menu-divider"></div>' +
+      '<button class="context-menu-item danger" onclick="QL.ctxDrop(\'' + db + '\',\'' + table + '\')"><span class="menu-icon">❌</span> 删除表</button>' +
+      '</div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+  }
+  function closeContextMenu() { closeModal('ctxOverlay'); }
+  function ctxRefresh(db) { closeContextMenu(); refreshDb(db); toast('表列表已刷新', 'info'); }
+  function ctxRename(db, table, isView) {
+    closeContextMenu();
+    if (isView) { toast('视图不支持重命名', 'info'); return; }
+    var id = 'renameModal';
+    var html = '<div class="dialog-overlay" id="' + id + '" onclick="QL.renameOverlay(event)"><div class="dialog" role="dialog" aria-modal="true">' +
+      '<div class="dialog-header"><h3>重命名表</h3><button class="dialog-close" onclick="QL.closeRename()">&times;</button></div>' +
+      '<div class="dialog-body"><div class="form-group"><label>原表名</label><input type="text" value="' + esc(table) + '" disabled></div>' +
+      '<div class="form-group"><label for="rename-new">新表名</label><input type="text" id="rename-new" value="' + esc(table) + '" placeholder="new_table_name"></div></div>' +
+      '<div class="dialog-footer"><button class="btn btn-secondary" onclick="QL.closeRename()">取消</button><button class="btn btn-primary" onclick="QL.execRename(\'' + db + '\',\'' + table + '\')">确认</button></div>' +
+      '</div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+  }
+  function renameOverlay(e) { if (e.target === e.currentTarget) closeRename(); }
+  function closeRename() { closeModal('renameModal'); }
+  function execRename(db, table) {
+    var nn = $('rename-new').value.trim();
+    if (!nn || nn === table) { closeRename(); return; }
+    closeRename();
+    toast('RENAME TABLE `' + db + '`.`' + table + '` TO `' + db + '`.`' + nn + '` 已执行');
+    TABLES[db] = (TABLES[db] || []).map(function (t) { return t.name === table ? Object.assign({}, t, { name: nn }) : t; });
+    var key = db + '.' + table, nk = db + '.' + nn;
+    if (SCHEMAS[key]) { SCHEMAS[nk] = SCHEMAS[key]; ROWGEN[nk] = ROWGEN[key]; }
+    refreshDb(db);
+    toast('表重命名成功');
+  }
+  function ctxTruncate(db, table, isView) {
+    closeContextMenu();
+    if (isView) { toast('视图不支持清空', 'info'); return; }
+    confirmAction({ title: '确认清空表', message: '确定要清空表 ' + db + '.' + table + ' 的所有数据吗？\n⚠️ 此操作不可撤销！所有数据将被永久删除！', confirmLabel: '确认清空', tone: 'danger' })
+      .then(function (ok) {
+        if (!ok) return;
+        toast('TRUNCATE TABLE `' + db + '`.`' + table + '` 已执行');
+        toast('表数据已清空');
+        ROWGEN[db + '.' + table + ':cache'] = [];
+        if (S.currentTable === db + '.' + table && S.viewMode === 'grid') { S.gridPage = 1; renderGrid(); }
+      });
+  }
+  function ctxDrop(db, table) {
+    closeContextMenu();
+    confirmAction({ title: '确认删除表', message: '确定要删除表 ' + db + '.' + table + ' 吗？\n⚠️ 此操作不可撤销！表结构和数据将被永久删除！', confirmLabel: '确认删除', tone: 'danger' })
+      .then(function (ok) {
+        if (!ok) return;
+        toast('DROP TABLE `' + db + '`.`' + table + '` 已执行');
+        TABLES[db] = (TABLES[db] || []).filter(function (t) { return t.name !== table; });
+        if (S.currentTable === db + '.' + table) { S.currentTable = null; S.viewMode = 'query'; renderSwitcher(); renderView(); }
+        refreshDb(db);
+        toast('表删除成功');
+      });
+  }
+  function demoContextMenu() {
+    if (!S.selectedConn) { selectConn('c1'); }
+    if (!S.expanded.shop) toggleDb('shop');
+    toast('请在侧栏表名上点击右键（例如 shop.users）', 'info');
+  }
+  function createTable(db) {
+    S.targetDatabase = db; S.creatingNewTable = true; S.viewMode = 'design';
+    initDesigner(true, null, db);
+    renderSwitcher(); renderView();
+    toast('已进入新建表模式：' + db, 'info');
+  }
+  function openTable(db, table) {
+    S.currentTable = db + '.' + table;
+    S.creatingNewTable = false; S.targetDatabase = '';
+    S.viewMode = 'grid';
+    S.gridPage = 1; S.gridFilter = ''; S.gridFilterCol = 'all'; S.gridSelected = {}; S.gridNewRows = []; S.gridMessage = null; S.gridEditing = null;
+    renderSwitcher(); renderView();
+  }
+
+  /* ==================== 视图切换（PAGE001） ==================== */
+  function renderSwitcher() {
+    var html = '';
+    html += '<button class="view-btn' + (S.viewMode === 'query' ? ' active' : '') + '" onclick="QL.setViewMode(\'query\')">SQL 查询</button>';
+    if (S.currentTable) {
+      html += '<button class="view-btn' + (S.viewMode === 'grid' ? ' active' : '') + '" onclick="QL.setViewMode(\'grid\')">数据网格</button>';
+      html += '<button class="view-btn design-btn' + (S.viewMode === 'design' ? ' active' : '') + '" onclick="QL.setViewMode(\'design\')">📋 设计表</button>';
+    }
+    html += '<button class="view-btn sync-btn' + (S.viewMode === 'sync' ? ' active' : '') + '" onclick="QL.setViewMode(\'sync\')">🔍 结构对比（预览）</button>';
+    html += '<button class="view-btn backup-btn' + (S.viewMode === 'backup' ? ' active' : '') + '" onclick="QL.setViewMode(\'backup\')">💾 备份还原</button>';
+    html += '<span class="page-tag" id="pageTag"></span>';
+    $('viewSwitcher').innerHTML = html;
+    $('creatingIndicator').innerHTML = S.creatingNewTable ? '<div class="creating-indicator">📝 新建表: ' + esc(S.targetDatabase) + '</div>' : '';
+  }
+  var PAGE_TAG = { query: 'PAGE004 + PAGE005 · PRD §6', grid: 'PAGE006 · PRD §6', design: 'PAGE007 · PRD §6', sync: 'PAGE008 · PRD §6', backup: 'PAGE009 · PRD §6' };
+  function setViewMode(m) {
+    S.viewMode = m;
+    if (m === 'design' && !S.designer) { initDesigner(false, S.currentTable, ''); }
+    if (m === 'design' && S.designer && S.currentTable && !S.creatingNewTable && S.designer.tableName !== S.currentTable) { initDesigner(false, S.currentTable, ''); }
+    if (m === 'query' && S.currentTable) {
+      var p = S.currentTable.split('.');
+      S.sql = 'SELECT * FROM `' + p[0] + '`.`' + p[1] + '` LIMIT 1000;';
+      renderView();
+      executeQuery();
+      return;
+    }
+    renderSwitcher(); renderView();
+  }
+  function renderView() {
+    var tag = $('pageTag'); if (tag) tag.textContent = PAGE_TAG[S.viewMode] || '';
+    var root = $('viewRoot');
+    if (S.viewMode === 'query') {
+      root.innerHTML = '<div class="view"><div class="editor-section" id="editorSec"></div><div class="results-section" id="resultsSec"></div></div>';
+      renderEditor(); renderResults();
+    } else if (S.viewMode === 'grid') {
+      root.innerHTML = '<div class="view grid-section" id="gridSec"></div>';
+      renderGrid();
+    } else if (S.viewMode === 'design') {
+      root.innerHTML = '<div class="view design-section" id="designSec"></div>';
+      renderDesigner();
+    } else if (S.viewMode === 'sync') {
+      root.innerHTML = '<div class="view sync-section" id="syncSec"></div>';
+      renderSync();
+    } else if (S.viewMode === 'backup') {
+      root.innerHTML = '<div class="view backup-section" id="backupSec"></div>';
+      renderBackup();
+    }
+  }
+
+  /* ==================== SQL 编辑器（PAGE004） ==================== */
+  function renderEditor() {
+    var sec = $('editorSec'); if (!sec) return;
+    var c = S.selectedConn;
+    var html = '<div class="sql-editor"><div class="editor-toolbar">' +
+      '<button class="btn-run' + (S.batchMode ? ' batch-mode' : '') + '" onclick="QL.executeQuery()" title="执行 SQL (Ctrl+Enter)">▶ ' + (S.batchMode ? '批量运行' : '运行') + '</button>' +
+      '<button class="' + (S.batchMode ? 'tb-on' : '') + '" onclick="QL.toggleBatch()" title="批量执行模式">⚡ 批量模式</button>' +
+      (S.batchMode ? '<button class="' + (S.useTransaction ? 'tb-on' : '') + '" onclick="QL.toggleTransaction()" title="使用事务包装">🔒 事务</button>' : '') +
+      '<button onclick="QL.formatSql()" title="格式化 SQL (Ctrl+S)">⟡ 格式化</button>' +
+      '<button onclick="QL.openSnippets()" title="代码片段 (F1)">📋 片段</button>' +
+      '<button onclick="QL.toggleHistory()" title="历史记录 (Ctrl+H)">🕒 历史 ' + (S.persistHistory ? '（本地）' : '（会话）') + ' (' + S.history.length + ')</button>' +
+      '<button onclick="QL.clearSql()" title="清空 (Ctrl+K)">清空</button>' +
+      '<div class="spacer"></div>' +
+      '<span class="connection-info">' + (c ? esc(c.name || c.host) + ' (' + (c.driver || 'SQL') + ')' : '未连接') + '</span>' +
+      '<span class="shortcuts-hint">Ctrl+Enter:执行 | Ctrl+S:格式化 | Ctrl+H:历史 | Ctrl+K:清空 | F1:片段 | Ctrl+F:编辑器搜索(CM)</span>' +
+      '</div><div class="editor-main">';
+    if (S.showHistory) {
+      html += '<div class="history-panel"><div class="history-header"><span>历史记录</span><button class="btn-close-history" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer" onclick="QL.toggleHistory()">&times;</button></div>' +
+        '<div class="history-actions"><button onclick="QL.togglePersistHistory()">' + (S.persistHistory ? '关闭本地保存' : '开启本地保存') + '</button><button class="btn-clear-history" onclick="QL.clearHistory()">清空历史</button></div>' +
+        (S.historyNotice ? '<div class="history-notice">' + esc(S.historyNotice) + '</div>' : '') +
+        '<div class="history-search"><input type="text" placeholder="搜索历史...（旧项目未实现过滤）"></div>' +
+        '<div class="history-list">' + (S.history.length === 0 ? '<div class="history-empty">暂无历史记录</div>' : S.history.map(function (h, i) {
+          return '<button type="button" class="history-item" onclick="QL.loadHistory(' + i + ')"><div class="history-sql">' + esc(h.sql.slice(0, 150)) + (h.sql.length > 150 ? '...' : '') + '</div><div class="history-meta"><span class="history-date">' + esc(h.date) + '</span></div></button>';
+        }).join('')) + '</div></div>';
+    }
+    var lines = S.sql.split('\n').length;
+    var nums = '';
+    for (var i = 1; i <= Math.max(lines, 6); i++) nums += i + '\n';
+    html += '<div class="editor-container"><div class="gutter"><pre style="margin:0;font:inherit">' + nums + '</pre></div>' +
+      '<textarea id="sqlInput" spellcheck="false" oninput="QL.onSqlInput(this.value)">' + esc(S.sql) + '</textarea></div>';
+    html += '</div></div>';
+    sec.innerHTML = html;
+  }
+  function onSqlInput(v) { S.sql = v; }
+  function toggleBatch() { S.batchMode = !S.batchMode; renderEditor(); status(S.batchMode ? '批量执行模式已开启' : 'Ready'); }
+  function toggleTransaction() { S.useTransaction = !S.useTransaction; renderEditor(); }
+  function toggleHistory() { S.showHistory = !S.showHistory; renderEditor(); }
+  function loadHistory(i) { S.sql = S.history[i].sql; S.showHistory = false; renderEditor(); }
+  function clearHistory() { S.history = []; S.historyNotice = ''; renderEditor(); }
+  function togglePersistHistory() {
+    S.persistHistory = !S.persistHistory;
+    S.historyNotice = S.persistHistory ? '已开启本地历史保存。含敏感关键词的 SQL 仍不会写入本地历史。' : '已关闭本地历史保存。当前会话结束后，历史记录不会保留。';
+    renderEditor();
+  }
+  function clearSql() { S.sql = ''; renderEditor(); }
+  function formatSql() {
+    var kw = ['SELECT', 'FROM', 'WHERE', 'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'ON', 'AND', 'OR', 'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'PRIMARY KEY', 'UNION ALL', 'UNION'];
+    kw.sort(function (a, b) { return b.length - a.length; });
+    var out = S.sql.replace(/\s+/g, ' ').trim();
+    kw.forEach(function (k) {
+      out = out.replace(new RegExp('\\b' + k + '\\b', 'gi'), '\n' + k);
+    });
+    out = out.replace(/\n+/g, '\n').replace(/^\n+/, '').replace(/\n\s+/g, '\n  ').trim();
+    S.sql = out.replace(/\n {2}(SELECT|FROM|WHERE)/g, '\n$1');
+    renderEditor();
+    status('SQL 已格式化（Ctrl+S）');
+  }
+  function openSnippets() {
+    var id = 'snippetModal';
+    var html = '<div class="dialog-overlay" id="' + id + '" onclick="QL.snippetOverlay(event)"><div class="dialog snippet-dialog" role="dialog" aria-modal="true" style="width:500px">' +
+      '<div class="dialog-header"><h3>SQL 代码片段 (' + SNIPPETS.length + ')</h3><button class="dialog-close" onclick="QL.closeSnippets()">&times;</button></div>' +
+      '<div class="dialog-body" style="max-height:60vh"><div class="snippet-list">' +
+      SNIPPETS.map(function (s, i) {
+        return '<button type="button" class="snippet-item" onclick="QL.insertSnippet(' + i + ')"><span class="snippet-name">' + esc(s.name) + '</span><span class="snippet-preview">' + esc(s.sql.slice(0, 50)) + '...</span></button>';
+      }).join('') +
+      '</div></div></div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+  }
+  function snippetOverlay(e) { if (e.target === e.currentTarget) closeSnippets(); }
+  function closeSnippets() { closeModal('snippetModal'); }
+  function insertSnippet(i) {
+    S.sql = (S.sql ? S.sql + '\n' : '') + SNIPPETS[i].sql + '\n';
+    closeSnippets(); renderEditor();
+  }
+  function saveHistory(sql) {
+    S.historyNotice = '';
+    S.history = S.history.filter(function (h) { return h.sql !== sql; });
+    S.history.unshift({ sql: sql, date: new Date().toLocaleString('zh-CN') });
+    if (S.history.length > 100) S.history = S.history.slice(0, 100);
+    if (!S.persistHistory) {
+      S.historyNotice = '历史记录仅保留当前会话，不会在重启后保留。';
+      if (isSensitive(sql)) S.historyNotice = '检测到可能包含敏感信息，本条 SQL 仅保留当前会话，不会写入本地历史。';
+      return;
+    }
+    if (isSensitive(sql)) {
+      S.historyNotice = '检测到可能包含敏感信息，本条 SQL 仅保留当前会话，不会写入本地历史。';
+    }
+  }
+  function demoSensitiveHistory() {
+    S.sql = "SELECT user_name, password FROM `shop`.`users` WHERE id = 1;";
+    saveHistory(S.sql);
+    S.showHistory = true;
+    S.viewMode = 'query';
+    renderSwitcher(); renderView();
+    toast('已注入含敏感词 SQL 并记录历史（F019 拦截提示见历史面板）', 'info');
+  }
+  function demoBatchMode() {
+    S.batchMode = true; S.useTransaction = true;
+    S.sql = "UPDATE `shop`.`products` SET stock = stock + 5 WHERE id = 1;\nUPDATE `shop`.`products` SET stock = stock + 8 WHERE id = 2;";
+    renderEditor(); setViewMode('query');
+    toast('已开启批量模式 + 事务（将拼 START TRANSACTION…COMMIT 提交）', 'info');
+  }
+
+  /* ==================== 执行与结果面板（PAGE005） ==================== */
+  function extractEditableTableName(sqlText) {
+    var t = sqlText.trim();
+    if (!t) return '';
+    var n = t.replace(/\s+/g, ' ').replace(/;$/, '');
+    if (n.indexOf(';') >= 0) return '';
+    var m = n.match(/^select \* from `([^`]+)`\.`([^`]+)`(?: limit \d+)?$/i);
+    if (!m) return '';
+    return m[1] + '.' + m[2];
+  }
+  function buildResultSet(columns, rows, editable) {
+    return { columns: columns.map(function (c) { return { name: c.name, column_type: c.column_type }; }), rows: rows, affectedRows: rows.length, editable: editable };
+  }
+  function executeQuery() {
+    if (!S.selectedConn) {
+      S.editableTableName = ''; S.queryError = '请先选择连接'; S.queryState = 'error'; S.query = null;
+      status('No connection');
+      renderResults(); renderConnections();
+      toast('请先选择连接', 'error');
+      return;
+    }
+    var sql = S.sql.trim();
+    if (!sql) return;
+    saveHistory(sql);
+    renderEditor();
+    if (S.batchMode) {
+      var wrapped = S.useTransaction ? 'START TRANSACTION;\n' + sql + '\nCOMMIT;' : sql;
+      var count = wrapped.split(';').filter(function (x) { return x.trim(); }).length;
+      status(S.useTransaction ? 'Batch executing with transaction...' : 'Batch executing...');
+    } else {
+      status('Executing...');
+    }
+    S.queryState = 'loading'; S.queryError = null; S.query = null; S.editableTableName = '';
+    renderResults();
+    setTimeout(function () {
+      if (S.scenario === 'loading') {
+        S.queryState = 'loading';
+        renderResults();
+        status('Executing...（场景锁定：切换场景库继续）');
+        return;
+      }
+      if (S.scenario === 'conn-fail') {
+        S.queryState = 'error';
+        S.queryError = "连接失败: Can't connect to MySQL server on '" + S.selectedConn.host + ":" + S.selectedConn.port + "' (61)";
+        status('Query failed'); renderResults(); return;
+      }
+      if (S.scenario === 'sql-error') {
+        S.queryState = 'error';
+        S.queryError = "SQL 错误: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'FORM users LIMIT 50' at line 1 (errno 1064)";
+        status('Query failed'); renderResults(); return;
+      }
+      var nextEditable = extractEditableTableName(sql);
+      var sets = [];
+      var stmts = S.batchMode && S.useTransaction
+        ? ('START TRANSACTION;\n' + sql + '\nCOMMIT;').split(';').filter(function (x) { return x.trim(); })
+        : sql.split(';').filter(function (x) { return x.trim(); });
+      S.batchStmtCount = stmts.length;
+      stmts.forEach(function (stmt) {
+        var s = stmt.trim().replace(/\n/g, ' ');
+        var m = s.match(/^select \* from `([^`]+)`\.`([^`]+)`/i);
+        var isSelect = /^select|^show|^describe|^explain|^with/i.test(s);
+        if (isSelect && m) {
+          var key = m[1] + '.' + m[2];
+          var schema = SCHEMAS[key];
+          var rows = tableRows(key);
+          if (S.scenario === 'empty') rows = [];
+          var editable = key === nextEditable && !!singlePK(schema);
+          var cols = schema ? schema.columns : [C('*', 'text', true)];
+          sets.push(buildResultSet(cols, rows.slice(0, 50), editable));
+        } else if (isSelect) {
+          sets.push(buildResultSet([C('id', 'int', false), C('name', 'varchar(50)', true), C('value', 'bigint', true)],
+            S.scenario === 'empty' ? [] : [[1, 'alpha', 100], [2, 'beta', 200], [3, null, null]], false));
+        } else {
+          sets.push({ columns: [], rows: [], affectedRows: s.toUpperCase().indexOf('DELETE') === 0 ? 2 : (s.toUpperCase().indexOf('UPDATE') === 0 ? 3 : 0), editable: false, affectedOnly: true });
+        }
+      });
+      S.query = { queryId: randomId8() + randomId8(), elapsedMs: 12 + Math.floor(Math.random() * 120), sets: sets };
+      S.queryState = 'done';
+      S.activeSetIndex = 0;
+      S.editableTableName = nextEditable && sets.length === 1 ? nextEditable : '';
+      if (S.batchMode) {
+        status('Batch completed: ' + S.batchStmtCount + ' statements, ' + S.query.elapsedMs + 'ms');
+      } else {
+        status('Query completed in ' + S.query.elapsedMs + 'ms');
+      }
+      renderResults();
+    }, 600);
+  }
+  function renderResults() {
+    var sec = $('resultsSec'); if (!sec) return;
+    var html = '<div class="results-panel">';
+    if (S.queryState === 'loading') {
+      html += '<div class="loading-state"><div class="spinner"></div><span>执行中...</span></div>';
+    } else if (S.queryState === 'error') {
+      html += '<div class="error-state"><span>⚠️</span><pre class="error-message">' + esc(S.queryError || '') + '</pre></div>';
+    } else if (!S.query) {
+      html += '<div class="empty-state-rp"><span>执行 SQL 后结果显示在这里</span></div>';
+    } else {
+      var q = S.query;
+      var set = q.sets[S.activeSetIndex] || q.sets[0];
+      var editable = set.editable && !!S.editableTableName;
+      html += '<div class="results-header"><div class="results-left"><div class="results-tabs">';
+      q.sets.forEach(function (st, idx) {
+        html += '<button type="button" class="result-tab' + (idx === S.activeSetIndex ? ' active' : '') + '" onclick="QL.setActiveSet(' + idx + ')">结果 ' + (idx + 1) + ' <span class="rows-count">(' + (st.affectedOnly ? st.affectedRows + ' 行' : st.rows.length + ' 行') + ')</span></button>';
+      });
+      html += '</div>';
+      if (set.rows.length > 0) {
+        html += '<div class="export-buttons"><button class="btn-export" onclick="QL.exportResult(\'csv\')" title="导出为 CSV">CSV</button><button class="btn-export" onclick="QL.exportResult(\'json\')" title="导出为 JSON">JSON</button></div>';
+      }
+      html += '</div><div class="results-info"><span>耗时: ' + q.elapsedMs + 'ms</span><span>查询ID: ' + q.queryId.slice(0, 8) + '</span>' +
+        (editable ? '<span class="edit-hint">双击单元格编辑</span>' : '') + '</div></div>';
+      if (S.updateMessage) {
+        html += '<div class="update-message ' + (S.updateMessage.success ? 'success' : 'error') + '">' + esc(S.updateMessage.text) + '</div>';
+      }
+      html += '<div class="results-content">';
+      if (set.affectedOnly) {
+        html += '<div class="success-message">执行成功，影响 ' + set.affectedRows + ' 行</div>';
+      } else if (set.columns.length === 0 && set.rows.length === 0) {
+        html += '<div class="success-message">执行成功，影响 0 行</div>';
+      } else {
+        var schema = SCHEMAS[S.editableTableName];
+        var pkName = editable && schema ? singlePK(schema) : null;
+        var pkCol = null;
+        if (pkName) { set.columns.forEach(function (c, i) { if (c.name === pkName) pkCol = i; }); }
+        html += '<div class="table-wrapper"><table class="data"><thead><tr>';
+        set.columns.forEach(function (c, i) {
+          html += '<th' + (i === pkCol ? ' class="primary-key"' : '') + '><span class="col-name">' + esc(c.name) + '</span><span class="col-type">' + esc((c.column_type || '').split('::').pop()) + '</span></th>';
+        });
+        html += '</tr></thead><tbody>';
+        if (set.rows.length === 0) {
+          html += '<tr><td colspan="' + set.columns.length + '" style="text-align:center;color:#666;padding:24px">0 行（空结果，场景：空数据）</td></tr>';
+        }
+        set.rows.forEach(function (row, ri) {
+          html += '<tr>';
+          row.forEach(function (cell, ci) {
+            var isPk = ci === pkCol;
+            var cls = cell === null ? 'cell-null' : (typeof cell === 'number' ? 'cell-number' : 'cell-string');
+            if (isPk) cls += ' cell-primary-key';
+            if (S.editingCell && S.editingCell.row === ri && S.editingCell.col === ci) {
+              html += '<td><div class="cell-editor"><input type="text" id="rp-edit" value="' + esc(S.editingCell.value) + '" class="' + (S.editingCell.isNull ? 'is-null' : '') + '" onkeydown="QL.rpKey(event)">' +
+                '<div class="cell-editor-actions"><button class="btn-save-c" onclick="QL.rpSave()">✓</button><button class="btn-cancel-c" onclick="QL.rpCancel()">✗</button>' +
+                '<button class="btn-null-c' + (S.editingCell.isNull ? ' active' : '') + '" onclick="QL.rpToggleNull()" title="设为 NULL">NULL</button></div></div></td>';
+            } else {
+              html += '<td class="' + cls + (editable && !isPk ? ' cell-editable' : '') + '"' + (editable && !isPk ? ' ondblclick="QL.rpEdit(' + ri + ',' + ci + ')"' : '') + '>' + esc(cell === null ? 'NULL' : String(cell)) + '</td>';
+            }
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    sec.innerHTML = html;
+  }
+  function setActiveSet(i) { S.activeSetIndex = i; renderResults(); }
+  function rpEdit(ri, ci) {
+    var set = S.query.sets[S.activeSetIndex];
+    if (!set || !set.editable) return;
+    var schema = SCHEMAS[S.editableTableName];
+    var pkName = singlePK(schema);
+    var pkCol = null;
+    if (pkName) { set.columns.forEach(function (c, i) { if (c.name === pkName) pkCol = i; }); }
+    if (ci === pkCol) return;
+    var v = set.rows[ri][ci];
+    S.editingCell = { row: ri, col: ci, value: v === null ? '' : String(v), isNull: v === null };
+    renderResults();
+  }
+  function rpToggleNull() {
+    if (!S.editingCell) return;
+    var input = $('rp-edit');
+    if (input) S.editingCell.value = input.value;
+    S.editingCell.isNull = !S.editingCell.isNull;
+    renderResults();
+  }
+  function rpCancel() { S.editingCell = null; S.updateMessage = null; renderResults(); }
+  function rpKey(e) {
+    if (e.key === 'Enter') { e.preventDefault(); rpSave(); }
+    else if (e.key === 'Escape') { e.preventDefault(); rpCancel(); }
+  }
+  function rpSave() {
+    if (!S.editingCell) return;
+    var input = $('rp-edit');
+    S.editingCell.value = input ? input.value : S.editingCell.value;
+    var ec = S.editingCell;
+    S.updateMessage = { success: true, text: '更新成功，影响 1 行（query_update_cell：UPDATE `' + S.editableTableName + '` SET `' + S.query.sets[S.activeSetIndex].columns[ec.col].name + '` = ' + (ec.isNull ? 'NULL' : "'" + ec.value + "'") + ' … LIMIT 1）' };
+    var set = S.query.sets[S.activeSetIndex];
+    set.rows[ec.row][ec.col] = ec.isNull ? null : ec.value;
+    S.editingCell = null;
+    renderResults();
+    var msg = S.updateMessage;
+    setTimeout(function () { S.updateMessage = null; renderResults(); }, 1200);
+    status('Query completed in ' + S.query.elapsedMs + 'ms');
+    void msg;
+  }
+  function exportResult(kind) {
+    var set = S.query.sets[S.activeSetIndex];
+    if (!set) return;
+    var name = (S.editableTableName || S.currentTable || 'result').replace(/.*\./, '');
+    var content = '';
+    if (kind === 'csv') {
+      content = set.columns.map(function (c) { return c.name; }).join(',') + '\n' +
+        set.rows.map(function (r) { return r.map(function (v) { return v === null ? 'NULL' : String(v); }).join(','); }).join('\n');
+    } else {
+      var arr = set.rows.map(function (r) {
+        var o = {};
+        set.columns.forEach(function (c, i) { o[c.name] = r[i]; });
+        return o;
+      });
+      content = JSON.stringify(arr, null, 2);
+    }
+    var fn = name + '_export.' + kind;
+    var ok = download(fn, content);
+    toast('导出成功: ' + fn + (ok ? '（fs_write_file 已模拟写入磁盘）' : '（浏览器下载不可用，仅模拟）'));
+  }
+  function demoExportResult() { setViewMode('query'); setTimeout(function () { exportResult('csv'); }, 300); }
+  function demoEditableResult() {
+    S.sql = 'SELECT * FROM `shop`.`users` LIMIT 50;';
+    setViewMode('query');
+    toast('单表直查 + 单列主键 → 结果可双击编辑（复杂 SQL 只读）', 'info');
+  }
+
+  /* ==================== 数据网格（PAGE006） ==================== */
+  function gridData() {
+    var key = S.currentTable;
+    if (!key) return { columns: [], rows: [], total: 0 };
+    var schema = SCHEMAS[key];
+    var rows = tableRows(key).slice();
+    if (S.scenario === 'empty') rows = [];
+    var filter = S.gridFilter.toLowerCase();
+    if (filter) {
+      rows = rows.filter(function (r) {
+        if (S.gridFilterCol !== 'all') {
+          var ci = -1;
+          schema.columns.forEach(function (c, i) { if (c.name === S.gridFilterCol) ci = i; });
+          return ci >= 0 && String(r[ci]).toLowerCase().indexOf(filter) >= 0;
+        }
+        return r.some(function (v) { return String(v === null ? '' : v).toLowerCase().indexOf(filter) >= 0; });
+      });
+    }
+    return { columns: schema ? schema.columns : [], rows: rows, total: rows.length, schema: schema };
+  }
+  function renderGrid() {
+    var sec = $('gridSec'); if (!sec) return;
+    if (!S.selectedConn || !S.currentTable) {
+      sec.innerHTML = '<div class="datagrid-container"><div class="empty-state" style="padding-top:80px">请先在 Schema 区选择表</div></div>';
+      return;
+    }
+    if (S.scenario === 'loading') {
+      sec.innerHTML = '<div class="datagrid-container"><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#888"><div class="spinner"></div>加载中...（场景锁定：切换场景库继续）</div></div>';
+      return;
+    }
+    if (S.scenario === 'conn-fail' && !S.gridMessage) {
+      sec.innerHTML = '<div class="datagrid-container"><div class="datagrid-error">连接失败: Can\'t connect to MySQL server (111)（场景：连接失败）</div></div>';
+      return;
+    }
+    var d = gridData();
+    var schema = d.schema;
+    var pkName = singlePK(schema);
+    var pkCol = null;
+    if (pkName) { d.columns.forEach(function (c, i) { if (c.name === pkName) pkCol = i; }); }
+    var mutable = pkName && pkCol !== null;
+    var totalPages = Math.max(1, Math.ceil(d.total / S.gridPageSize));
+    if (S.gridPage > totalPages) S.gridPage = totalPages;
+    var start = (S.gridPage - 1) * S.gridPageSize;
+    var pageRows = d.rows.slice(start, start + S.gridPageSize);
+    var html = '<div class="datagrid-container">';
+    html += '<div class="datagrid-toolbar"><div class="toolbar-left">' +
+      '<button class="btn-toolbar" onclick="QL.gridRefresh()" title="刷新">&#8635;</button>' +
+      '<button class="btn-toolbar btn-add" onclick="QL.gridAddRow()" title="新增行">+ 新增</button>' +
+      '<button class="btn-toolbar btn-delete" onclick="QL.gridDeleteSelected()" ' + (Object.keys(S.gridSelected).length === 0 || !mutable ? 'disabled' : '') + ' title="删除选中行">- 删除 (' + Object.keys(S.gridSelected).length + ')</button>' +
+      '<div class="toolbar-divider"></div>' +
+      '<button class="btn-toolbar" onclick="QL.gridExport(\'csv\')" ' + (d.columns.length === 0 ? 'disabled' : '') + ' title="导出为 CSV">&#128196; CSV</button>' +
+      '<button class="btn-toolbar" onclick="QL.gridExport(\'json\')" ' + (d.columns.length === 0 ? 'disabled' : '') + ' title="导出为 JSON">&#128193; JSON</button>' +
+      '<button class="btn-toolbar" onclick="QL.gridExport(\'sql\')" ' + (d.columns.length === 0 ? 'disabled' : '') + ' title="导出为 SQL">&#128196; SQL</button>' +
+      '</div><div class="toolbar-right">' +
+      '<input type="text" class="filter-input" id="gridFilter" value="' + esc(S.gridFilter) + '" placeholder="筛选..." onkeydown="QL.gridFilterKey(event)">' +
+      '<select class="filter-column" id="gridFilterCol" onchange="QL.gridFilterColSet(this.value)"><option value="all">所有列</option>' +
+      d.columns.map(function (c) { return '<option value="' + esc(c.name) + '"' + (S.gridFilterCol === c.name ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<button class="btn-filter" onclick="QL.gridApplyFilter()">筛选</button>' +
+      (S.gridFilter ? '<button class="btn-filter" onclick="QL.gridClearFilter()">清除</button>' : '') +
+      '</div></div>';
+    if (S.gridMessage) {
+      html += '<div class="message-banner ' + (S.gridMessage.success ? 'success' : 'error') + '"><span>' + esc(S.gridMessage.text) + '</span><button onclick="QL.gridCloseMsg()">&times;</button></div>';
+    }
+    if (schema && !mutable) {
+      html += '<div class="readonly-banner">当前表未检测到单列主键，网格视图仅支持浏览、筛选、导出和插入；更新与删除已禁用。</div>';
+    }
+    html += '<div class="datagrid-table-wrapper">';
+    if (d.columns.length === 0) {
+      html += '<div class="datagrid-empty">无数据</div>';
+    } else {
+      html += '<div class="datagrid-table"><table class="data"><thead><tr><th class="row-num-header">#</th><th class="checkbox-header"><input type="checkbox" ' + (Object.keys(S.gridSelected).length === pageRows.length && pageRows.length > 0 ? 'checked' : '') + ' ' + (!mutable ? 'disabled' : '') + ' onchange="QL.gridToggleAll()"></th>';
+      d.columns.forEach(function (c, i) {
+        html += '<th' + (i === pkCol ? ' class="primary-key"' : '') + '><span class="col-name">' + esc(c.name) + '</span><span class="col-type">' + esc(c.column_type) + '</span></th>';
+      });
+      html += '</tr></thead><tbody>';
+      var allRows = pageRows.concat(S.gridNewRows.map(function (r) { return r.data; }));
+      if (allRows.length === 0) {
+        html += '<tr><td colspan="' + (d.columns.length + 2) + '"><div class="empty-table-message"><span class="empty-icon">📭</span><span>此表当前没有数据</span><span class="table-name-hint">' + esc(S.currentTable) + '</span></div></td></tr>';
+      }
+      allRows.forEach(function (row, ri) {
+        var isNew = ri >= pageRows.length;
+        var selected = !isNew && S.gridSelected[start + ri];
+        html += '<tr class="' + (selected ? 'selected-row ' : '') + (isNew ? 'new-row' : '') + '">';
+        html += '<td class="row-num">' + (start + ri + 1) + '</td>';
+        html += '<td class="row-checkbox">' + (isNew ? '🆕' : '<input type="checkbox" ' + (selected ? 'checked' : '') + ' ' + (!mutable ? 'disabled' : '') + ' onchange="QL.gridToggleRow(' + (start + ri) + ')">') + '</td>';
+        row.forEach(function (cell, ci) {
+          var isPk = ci === pkCol;
+          if (S.gridEditing && S.gridEditing.row === ri && S.gridEditing.col === ci) {
+            html += '<td><input type="text" class="cell-input" id="grid-edit" value="' + esc(S.gridEditing.value) + '" onkeydown="QL.gridKey(event,' + ri + ',' + ci + ')"></td>';
+          } else {
+            var cls = cell === null ? 'cell-null' : (typeof cell === 'number' ? 'cell-number' : 'cell-string');
+            if (isPk) cls += ' cell-primary-key';
+            var dbl = (isPk || !mutable) ? 'QL.gridNoPk()' : 'QL.gridEdit(' + ri + ',' + ci + ')';
+            html += '<td class="' + cls + (!isPk && mutable ? ' cell-editable' : '') + '" ondblclick="' + dbl + '">' + esc(cell === null ? 'NULL' : String(cell)) + '</td>';
+          }
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      html += '<div class="datagrid-pagination"><span class="pagination-info">' + (d.total === 0 ? '空表' : '第 ' + S.gridPage + ' / ' + totalPages + ' 页，共 ' + d.total + ' 行') + '</span>' +
+        '<div class="pagination-controls"><button onclick="QL.gridPrev()" ' + (S.gridPage <= 1 ? 'disabled' : '') + '>&lt;</button>' +
+        '<input type="number" min="1" max="' + totalPages + '" value="' + S.gridPage + '" class="page-input" onchange="QL.gridGoto(this.value)">' +
+        '<button onclick="QL.gridNext(' + totalPages + ')" ' + (S.gridPage >= totalPages ? 'disabled' : '') + '>&gt;</button></div></div>';
+    }
+    html += '</div></div>';
+    sec.innerHTML = html;
+  }
+  function gridNoPk() {
+    var d = gridData();
+    if (!singlePK(d.schema)) { S.gridMessage = { success: false, text: '当前表缺少单列主键，暂不支持网格编辑' }; renderGrid(); }
+  }
+  function gridRefresh() { S.gridMessage = null; S.gridSelected = {}; S.gridNewRows = []; renderGrid(); status('数据已刷新'); }
+  function gridToggleRow(idx) { if (S.gridSelected[idx]) delete S.gridSelected[idx]; else S.gridSelected[idx] = true; renderGrid(); }
+  function gridToggleAll() {
+    var d = gridData();
+    var start = (S.gridPage - 1) * S.gridPageSize;
+    var pageRows = d.rows.slice(start, start + S.gridPageSize);
+    if (Object.keys(S.gridSelected).length === pageRows.length) { S.gridSelected = {}; }
+    else { pageRows.forEach(function (_, i) { S.gridSelected[start + i] = true; }); }
+    renderGrid();
+  }
+  function gridPrev() { if (S.gridPage > 1) { S.gridPage--; S.gridSelected = {}; renderGrid(); } }
+  function gridNext(total) { if (S.gridPage < total) { S.gridPage++; S.gridSelected = {}; renderGrid(); } }
+  function gridGoto(v) { var p = parseInt(v, 10); if (p >= 1) { S.gridPage = p; S.gridSelected = {}; renderGrid(); } }
+  function gridFilterKey(e) { if (e.key === 'Enter') gridApplyFilter(); }
+  function gridFilterColSet(v) { S.gridFilterCol = v; }
+  function gridApplyFilter() { S.gridFilter = $('gridFilter').value; S.gridPage = 1; renderGrid(); status('已应用筛选（LIKE 模糊匹配）'); }
+  function gridClearFilter() { S.gridFilter = ''; S.gridFilterCol = 'all'; S.gridPage = 1; renderGrid(); }
+  function gridCloseMsg() { S.gridMessage = null; renderGrid(); }
+  function gridEdit(ri, ci) {
+    var d = gridData();
+    var start = (S.gridPage - 1) * S.gridPageSize;
+    var pageRows = d.rows.slice(start, start + S.gridPageSize);
+    var isNew = ri >= pageRows.length;
+    var row = isNew ? S.gridNewRows[ri - pageRows.length].data : pageRows[ri];
+    S.gridEditing = { row: ri, col: ci, value: row[ci] === null ? '' : String(row[ci]), isNew: isNew };
+    renderGrid();
+  }
+  function gridKey(e, ri, ci) {
+    if (e.key === 'Enter') { e.preventDefault(); gridSaveCell(ri, ci, false); }
+    else if (e.key === 'Escape') { e.preventDefault(); S.gridEditing = null; renderGrid(); }
+    else if (e.key === 'Tab') { e.preventDefault(); gridSaveCell(ri, ci, true); }
+  }
+  function gridSaveCell(ri, ci, viaTab) {
+    if (!S.gridEditing) return;
+    var input = $('grid-edit');
+    S.gridEditing.value = input ? input.value : S.gridEditing.value;
+    var d = gridData();
+    var start = (S.gridPage - 1) * S.gridPageSize;
+    var pageRows = d.rows.slice(start, start + S.gridPageSize);
+    var isNew = ri >= pageRows.length;
+    var colName = d.columns[ci].name;
+    if (isNew) {
+      var nr = S.gridNewRows[ri - pageRows.length];
+      nr.data[ci] = S.gridEditing.value === '' ? null : S.gridEditing.value;
+      if (ci === d.columns.length - 1) {
+        gridCommitNewRow(ri);
+        return;
+      }
+      S.gridEditing = { row: ri, col: ci + 1, value: String(nr.data[ci + 1] || ''), isNew: true };
+      renderGrid();
+      return;
+    }
+    var pkName = singlePK(d.schema);
+    var pkCol = null;
+    if (pkName) { d.columns.forEach(function (c, i) { if (c.name === pkName) pkCol = i; }); }
+    var pkValue = pageRows[ri][pkCol];
+    var sql = 'UPDATE `' + S.currentTable.replace('.', '`.`') + '` SET `' + colName + "` = '" + S.gridEditing.value + "' WHERE `" + pkName + '` = ' + pkValue + ' LIMIT 1';
+    var key = S.currentTable;
+    tableRows(key)[start + ri][ci] = S.gridEditing.value === '' ? null : S.gridEditing.value;
+    S.gridEditing = null;
+    S.gridMessage = { success: true, text: '更新成功（' + sql + '）' };
+    renderGrid();
+    if (!viaTab) status('更新成功');
+  }
+  function gridAddRow() {
+    var d = gridData();
+    if (d.columns.length === 0) { S.gridMessage = { success: false, text: '无法新增：未加载表结构' }; renderGrid(); return; }
+    var d2 = gridData();
+    var schema = d2.schema;
+    var pkName = singlePK(schema);
+    var pkCol = null;
+    if (pkName) { d2.columns.forEach(function (c, i) { if (c.name === pkName) pkCol = i; }); }
+    var empty = d.columns.map(function () { return null; });
+    if (pkCol !== null) empty[pkCol] = '';
+    S.gridNewRows.push({ data: empty });
+    var start = (S.gridPage - 1) * S.gridPageSize;
+    var ri = d.rows.slice(start, start + S.gridPageSize).length + S.gridNewRows.length - 1;
+    S.gridEditing = { row: ri, col: 0, value: '', isNew: true };
+    renderGrid();
+    toast('新增行：逐列录入，最后一列 Enter 触发 INSERT（排除自增列）', 'info');
+    void d;
+  }
+  function gridCommitNewRow(ri) {
+    var d = gridData();
+    var start = (S.gridPage - 1) * S.gridPageSize;
+    var pageRows = d.rows.slice(start, start + S.gridPageSize);
+    var nr = S.gridNewRows[ri - pageRows.length];
+    var autoCols = [];
+    d.schema.columns.forEach(function (c) { if (c.extra && c.extra.indexOf('auto_increment') >= 0) autoCols.push(c.name); });
+    var cols = [], vals = [];
+    d.columns.forEach(function (c, i) {
+      if (autoCols.indexOf(c.name) >= 0) return;
+      cols.push('`' + c.name + '`');
+      var v = nr.data[i];
+      vals.push(v === null || v === '' ? 'NULL' : (isNaN(Number(v)) ? "'" + v + "'" : String(v)));
+    });
+    var sql = 'INSERT INTO `' + S.currentTable.replace('.', '`.`') + '` (' + cols.join(', ') + ') VALUES (' + vals.join(', ') + ')';
+    var newRow = [];
+    d.columns.forEach(function (c, i) { newRow.push(nr.data[i]); });
+    tableRows(S.currentTable).push(newRow);
+    S.gridNewRows.splice(ri - pageRows.length, 1);
+    S.gridEditing = null;
+    S.gridMessage = { success: true, text: '插入成功（' + sql + '）' };
+    renderGrid();
+  }
+  function gridDeleteSelected() {
+    var count = Object.keys(S.gridSelected).length;
+    if (count === 0) return;
+    var d = gridData();
+    if (!singlePK(d.schema)) { S.gridMessage = { success: false, text: '当前表缺少单列主键，暂不支持网格删除' }; renderGrid(); return; }
+    confirmAction({ title: '确认删除', message: '确定要删除选中的 ' + count + ' 行数据吗？\n此操作不可撤销！', confirmLabel: '删除', tone: 'danger' }).then(function (ok) {
+      if (!ok) return;
+      var idxs = Object.keys(S.gridSelected).map(Number).sort(function (a, b) { return b - a; });
+      var rows = tableRows(S.currentTable);
+      var d2 = gridData();
+      var filtered = d2.rows;
+      idxs.forEach(function (gi) {
+        var v = filtered[gi];
+        var pos = rows.indexOf(v);
+        if (pos >= 0) rows.splice(pos, 1);
+      });
+      S.gridSelected = {};
+      S.gridMessage = { success: true, text: '成功删除 ' + count + ' 行（逐行 DELETE … LIMIT 1）' };
+      renderGrid();
+    });
+  }
+  function gridExport(kind) {
+    var d = gridData();
+    var name = S.currentTable.replace(/.*\./, '');
+    var rows = d.rows.concat(S.gridNewRows.map(function (r) { return r.data; }));
+    var content = '';
+    if (kind === 'csv') {
+      content = d.columns.map(function (c) { return c.name; }).join(',') + '\n' + rows.map(function (r) { return r.map(function (v) { return v === null ? 'NULL' : String(v); }).join(','); }).join('\n');
+    } else if (kind === 'json') {
+      content = JSON.stringify(rows.map(function (r) { var o = {}; d.columns.forEach(function (c, i) { o[c.name] = r[i]; }); return o; }), null, 2);
+    } else {
+      content = '-- Data export from ' + S.currentTable + '\n-- Generated at ' + new Date().toISOString() + '\n\n';
+      rows.forEach(function (r) {
+        content += 'INSERT INTO `' + S.currentTable.replace('.', '`.`') + '` (' + d.columns.map(function (c) { return '`' + c.name + '`'; }).join(', ') + ') VALUES (' + r.map(function (v) { return v === null ? 'NULL' : (typeof v === 'number' ? String(v) : "'" + v + "'"); }).join(', ') + ');\n';
+      });
+    }
+    var fn = name + '_export.' + kind;
+    var ok = download(fn, content);
+    toast('导出成功: ' + fn + (ok ? '（已模拟写入磁盘）' : '（浏览器下载不可用，仅模拟）'));
+  }
+  function demoEmptyGrid() {
+    setScenario('empty');
+    openTable('shop', 'users');
+    toast('已切「空数据」场景并打开 shop.users（空表态）', 'info');
+  }
+
+  /* ==================== 表设计器（PAGE007） ==================== */
+  var DATA_TYPE_GROUPS = [
+    { group: '整数', types: ['TINYINT', 'SMALLINT', 'MEDIUMINT', 'INT', 'BIGINT'] },
+    { group: '浮点数', types: ['FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC'] },
+    { group: '字符串', types: ['CHAR', 'VARCHAR', 'TEXT', 'TINYTEXT', 'MEDIUMTEXT', 'LONGTEXT'] },
+    { group: '二进制', types: ['BINARY', 'VARBINARY', 'BLOB', 'TINYBLOB', 'MEDIUMBLOB', 'LONGBLOB'] },
+    { group: '日期时间', types: ['DATE', 'TIME', 'DATETIME', 'TIMESTAMP', 'YEAR'] },
+    { group: '其他', types: ['BOOLEAN', 'JSON', 'ENUM', 'SET'] }
+  ];
+  var ENGINES = ['InnoDB', 'MyISAM', 'MEMORY', 'ARCHIVE', 'CSV'];
+  var CHARSETS = ['utf8mb4', 'utf8', 'latin1', 'gbk', 'big5'];
+  var COLLATIONS2 = ['utf8mb4_unicode_ci', 'utf8mb4_general_ci', 'utf8_unicode_ci', 'utf8_general_ci', 'latin1_swedish_ci', 'gbk_chinese_ci', 'big5_chinese_ci'];
+  var NEED_LEN = ['CHAR', 'VARCHAR', 'BINARY', 'VARBINARY', 'DECIMAL', 'NUMERIC'];
+  function initDesigner(isNew, tableName, targetDb) {
+    var columns = [];
+    var tableInfo = { engine: 'InnoDB', charset: 'utf8mb4', collation: 'utf8mb4_unicode_ci', comment: '' };
+    if (!isNew && tableName && SCHEMAS[tableName]) {
+      var schema = SCHEMAS[tableName];
+      var pk = singlePK(schema);
+      columns = schema.columns.map(function (c) {
+        var len = (c.column_type.match(/\(([^)]+)\)/) || [null, ''])[1];
+        var base = c.column_type.replace(/\(.*\)/, '').toUpperCase();
+        return { name: c.name, type: base, length: len, nullable: !!c.nullable, primaryKey: pk === c.name, autoIncrement: !!(c.extra && c.extra.indexOf('auto_increment') >= 0), defaultValue: c.default || '', comment: c.comment || '', isOriginal: true };
+      });
+      tableInfo = { engine: 'InnoDB', charset: 'utf8mb4', collation: 'utf8mb4_unicode_ci', comment: (TABLES[tableName.split('.')[0]] || []).filter(function (t) { return t.name === tableName.split('.')[1]; }).map(function (t) { return t.comment; })[0] || '' };
+    }
+    S.designer = {
+      mode: isNew ? 'new' : 'edit', tableName: tableName || '', targetDatabase: targetDb || '',
+      newTableName: '', columns: columns, original: JSON.parse(JSON.stringify(columns)),
+      originalInfo: JSON.parse(JSON.stringify(tableInfo)), tableInfo: tableInfo,
+      hasChanges: false, error: null, saving: false
+    };
+  }
+  function renderDesigner() {
+    var sec = $('designSec'); if (!sec) return;
+    var d = S.designer;
+    if (!d) { sec.innerHTML = '<div class="empty-state" style="padding-top:80px">请选择表后进入设计，或从 Schema 区「+ 新建表」</div>'; return; }
+    var html = '<div class="table-designer">';
+    html += '<div class="designer-header"><div class="designer-title"><span>' + (d.mode === 'new' ? '📝' : '📋') + '</span>';
+    if (d.mode === 'new') {
+      html += '<span>新建表 - ' + esc(d.targetDatabase) + '.</span><input type="text" class="table-name-input" id="d-newname" value="' + esc(d.newTableName) + '" placeholder="表名" oninput="QL.dChange()">';
+    } else {
+      html += '<span>表设计 - ' + esc(d.tableName) + '</span>';
+    }
+    html += '</div><div class="designer-actions">' +
+      (d.hasChanges ? '<span class="unsaved-indicator">有未保存的更改</span>' : '') +
+      '<button class="btn btn-secondary" onclick="QL.dClose()">关闭</button>' +
+      '<button class="btn btn-primary" onclick="QL.dSave()" ' + (d.saving ? 'disabled' : '') + '>' + (d.saving ? '保存中...' : '保存') + '</button>' +
+      '</div></div>';
+    if (d.error) html += '<div class="error-banner">' + esc(d.error) + '</div>';
+    html += '<div class="designer-content"><div class="columns-section"><div class="section-header"><h3>列</h3><button class="btn btn-green btn-add" onclick="QL.dAddCol()">+ 添加列</button></div>';
+    html += '<div class="columns-table-wrapper"><table class="columns-table"><thead><tr><th>主键</th><th>自增</th><th>列名</th><th>类型</th><th>长度</th><th>NULL</th><th>默认值</th><th>注释</th><th>操作</th></tr></thead><tbody>';
+    if (d.columns.length === 0) {
+      html += '<tr><td colspan="9" style="text-align:center;color:#666;padding:20px">暂无列，点击「+ 添加列」（保存要求至少一列）</td></tr>';
+    }
+    d.columns.forEach(function (c, i) {
+      html += '<tr' + (c.isOriginal ? '' : ' class="original-col"') + '>';
+      html += '<td style="text-align:center"><input type="checkbox" ' + (c.primaryKey ? 'checked' : '') + ' onchange="QL.dCol(' + i + ',\'primaryKey\',this.checked)"></td>';
+      html += '<td style="text-align:center"><input type="checkbox" ' + (c.autoIncrement ? 'checked' : '') + ' ' + (!c.primaryKey ? 'disabled' : '') + ' onchange="QL.dCol(' + i + ',\'autoIncrement\',this.checked)"></td>';
+      html += '<td><input type="text" value="' + esc(c.name) + '" placeholder="列名" onchange="QL.dCol(' + i + ',\'name\',this.value)"></td>';
+      html += '<td><select onchange="QL.dCol(' + i + ',\'type\',this.value)">' + DATA_TYPE_GROUPS.map(function (g) {
+        return '<optgroup label="' + g.group + '">' + g.types.map(function (t) { return '<option value="' + t + '"' + (c.type === t ? ' selected' : '') + '>' + t + '</option>'; }).join('') + '</optgroup>';
+      }).join('') + '</select></td>';
+      html += '<td>' + (NEED_LEN.indexOf(c.type) >= 0 ? '<input type="text" value="' + esc(c.length) + '" placeholder="长度" onchange="QL.dCol(' + i + ',\'length\',this.value)">' : '<span style="color:#666">-</span>') + '</td>';
+      html += '<td style="text-align:center"><input type="checkbox" ' + (c.nullable ? 'checked' : '') + ' ' + (c.primaryKey ? 'disabled' : '') + ' onchange="QL.dCol(' + i + ',\'nullable\',this.checked)"></td>';
+      html += '<td><input type="text" value="' + esc(c.defaultValue) + '" placeholder="默认值" onchange="QL.dCol(' + i + ',\'defaultValue\',this.value)"></td>';
+      html += '<td><input type="text" value="' + esc(c.comment) + '" placeholder="注释" onchange="QL.dCol(' + i + ',\'comment\',this.value)"></td>';
+      html += '<td style="text-align:center"><button class="btn-del-col" title="删除列" onclick="QL.dDelCol(' + i + ')">🗑️</button></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+    html += '<div class="options-section"><div class="section-header"><h3>表选项</h3></div><div class="options-grid">' +
+      '<div class="option-item"><label>存储引擎</label><select onchange="QL.dInfo(\'engine\',this.value)">' + ENGINES.map(function (e) { return '<option' + (d.tableInfo.engine === e ? ' selected' : '') + '>' + e + '</option>'; }).join('') + '</select></div>' +
+      '<div class="option-item"><label>字符集</label><select onchange="QL.dInfo(\'charset\',this.value)">' + CHARSETS.map(function (e) { return '<option' + (d.tableInfo.charset === e ? ' selected' : '') + '>' + e + '</option>'; }).join('') + '</select></div>' +
+      '<div class="option-item"><label>排序规则</label><select onchange="QL.dInfo(\'collation\',this.value)">' + COLLATIONS2.map(function (e) { return '<option' + (d.tableInfo.collation === e ? ' selected' : '') + '>' + e + '</option>'; }).join('') + '</select></div>' +
+      '<div class="option-item"><label>表注释</label><input type="text" value="' + esc(d.tableInfo.comment) + '" placeholder="表注释" oninput="QL.dInfo(\'comment\',this.value)"></div>' +
+      '</div></div></div></div>';
+    sec.innerHTML = html;
+  }
+  function dChange() { S.designer.hasChanges = true; var el = $('d-newname'); if (el) S.designer.newTableName = el.value; var tag = document.querySelector('.unsaved-indicator'); if (!tag) renderDesigner(); }
+  function dAddCol() {
+    S.designer.columns.push({ name: '', type: 'VARCHAR', length: '255', nullable: true, primaryKey: false, autoIncrement: false, defaultValue: '', comment: '', isOriginal: false });
+    S.designer.hasChanges = true;
+    renderDesigner();
+  }
+  function dDelCol(i) { S.designer.columns.splice(i, 1); S.designer.hasChanges = true; renderDesigner(); }
+  function dCol(i, field, value) {
+    var d = S.designer;
+    var c = d.columns[i];
+    c[field] = value;
+    if (field === 'primaryKey' && value === true) c.nullable = false;
+    if (field === 'autoIncrement' && value === true) { c.primaryKey = true; c.nullable = false; }
+    d.hasChanges = true;
+    renderDesigner();
+  }
+  function dInfo(field, value) {
+    if (field === 'comment') { S.designer.tableInfo.comment = value; S.designer.hasChanges = true; var tag = document.querySelector('.unsaved-indicator'); if (!tag) renderDesigner(); return; }
+    S.designer.tableInfo[field] = value;
+    S.designer.hasChanges = true;
+    renderDesigner();
+  }
+  function dValidate() {
+    var d = S.designer;
+    if (!d.columns.length) return '至少需要一列';
+    for (var i = 0; i < d.columns.length; i++) {
+      var c = d.columns[i];
+      if (!c.name.trim()) return '列名不能为空';
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c.name)) return '列名 "' + c.name + '" 不符合命名规则';
+      if (c.autoIncrement && !c.primaryKey) return '列 "' + c.name + '" 设置了自增必须是主键';
+    }
+    if (d.columns.filter(function (c) { return c.primaryKey; }).length > 1) return '目前只支持单列主键';
+    return null;
+  }
+  function dColDefSql(c) {
+    return '`' + c.name + '` ' + c.type + (c.length ? '(' + c.length + ')' : '') + (c.primaryKey || c.autoIncrement || !c.nullable ? ' NOT NULL' : '') + (c.autoIncrement ? ' AUTO_INCREMENT' : '') + (c.defaultValue ? " DEFAULT '" + c.defaultValue + "'" : '') + (c.comment ? " COMMENT '" + c.comment + "'" : '');
+  }
+  function dAlterPreviewSql() {
+    var d = S.designer;
+    var parts = d.tableName.split('.');
+    var stmts = [];
+    var dropped = [];
+    var added = [];
+    d.original.forEach(function (o) {
+      var found = d.columns.some(function (c) { return c.name === o.name; });
+      if (!found) dropped.push(o);
+    });
+    d.columns.forEach(function (c) { if (!c.isOriginal) added.push(c); });
+    var renamedPairs = [];
+    var dropOnly = [];
+    dropped.forEach(function (o, i) {
+      if (added[i]) renamedPairs.push({ from: o, to: added[i] });
+      else dropOnly.push(o);
+    });
+    var renamedAdded = renamedPairs.map(function (p) { return p.to; });
+    added.forEach(function (c) {
+      if (renamedAdded.indexOf(c) < 0) {
+        stmts.push('ALTER TABLE `' + parts[0] + '`.`' + parts[1] + '` ADD COLUMN ' + dColDefSql(c) + ';');
+      }
+    });
+    renamedPairs.forEach(function (p) {
+      stmts.push('ALTER TABLE `' + parts[0] + '`.`' + parts[1] + '` CHANGE COLUMN `' + p.from.name + '` ' + dColDefSql(p.to) + ';');
+    });
+    dropOnly.forEach(function (o) {
+      stmts.push('ALTER TABLE `' + parts[0] + '`.`' + parts[1] + '` DROP COLUMN `' + o.name + '`;');
+    });
+    d.columns.forEach(function (c) {
+      if (!c.isOriginal) return;
+      var o = null;
+      d.original.forEach(function (x) { if (x.name === c.name) o = x; });
+      if (o && (o.type !== c.type || o.length !== c.length || o.nullable !== c.nullable || o.defaultValue !== c.defaultValue || o.comment !== c.comment)) {
+        stmts.push('ALTER TABLE `' + parts[0] + '`.`' + parts[1] + '` MODIFY COLUMN `' + c.name + '` ' + c.type + (c.length ? '(' + c.length + ')' : '') + (c.nullable ? '' : ' NOT NULL') + ';');
+      }
+    });
+    var a = d.tableInfo, b = d.originalInfo;
+    if (a.engine !== b.engine || a.charset !== b.charset || a.collation !== b.collation || a.comment !== b.comment) {
+      stmts.push('ALTER TABLE `' + parts[0] + '`.`' + parts[1] + '` ENGINE=' + a.engine + ', DEFAULT CHARACTER SET=' + a.charset + ', COLLATE=' + a.collation + ", COMMENT='" + a.comment + "';");
+    }
+    return stmts;
+  }
+  function dSave() {
+    var d = S.designer;
+    var err = dValidate();
+    if (err) { d.error = err; renderDesigner(); return; }
+    if (d.mode === 'new') {
+      var name = $('d-newname') ? $('d-newname').value.trim() : d.newTableName;
+      if (!name) { d.error = '请输入表名'; renderDesigner(); return; }
+      var colDefs = d.columns.map(function (c) { return '`' + c.name + '` ' + c.type + (c.length ? '(' + c.length + ')' : '') + (c.primaryKey || c.autoIncrement || !c.nullable ? ' NOT NULL' : '') + (c.autoIncrement ? ' AUTO_INCREMENT' : '') + (c.defaultValue ? " DEFAULT '" + c.defaultValue + "'" : '') + (c.comment ? " COMMENT '" + c.comment + "'" : ''); });
+      var pks = d.columns.filter(function (c) { return c.primaryKey || c.autoIncrement; }).map(function (c) { return '`' + c.name + '`'; });
+      var sql = 'CREATE TABLE `' + d.targetDatabase + '`.`' + name + '` (' + colDefs.join(', ') + (pks.length ? ', PRIMARY KEY (' + pks.join(', ') + ')' : '') + ') ENGINE=' + d.tableInfo.engine + ' CHARACTER SET ' + d.tableInfo.charset + ' COLLATE ' + d.tableInfo.collation + (d.tableInfo.comment ? " COMMENT='" + d.tableInfo.comment + "'" : '');
+      toast("表 '" + d.targetDatabase + '.' + name + "' 创建成功（meta_create_table）");
+      status('CREATE TABLE 已执行');
+      if (!TABLES[d.targetDatabase]) TABLES[d.targetDatabase] = [];
+      TABLES[d.targetDatabase].push({ name: name, type: 'BASE TABLE', comment: d.tableInfo.comment });
+      var key = d.targetDatabase + '.' + name;
+      SCHEMAS[key] = {
+        columns: d.columns.map(function (c) { return C(c.name, c.type + (c.length ? '(' + c.length + ')' : ''), c.nullable, c.autoIncrement ? 'auto_increment' : null, c.defaultValue || null, c.comment || null); }),
+        indexes: pks.length ? [{ name: 'PRIMARY', unique: true, columns: d.columns.filter(function (c) { return c.primaryKey || c.autoIncrement; }).map(function (c) { return c.name; }) }] : [],
+        create_sql: sql
+      };
+      ROWGEN[key] = function () { return []; };
+      S.creatingNewTable = false;
+      refreshDb(d.targetDatabase);
+      S.currentTable = key;
+      S.viewMode = 'grid'; S.gridPage = 1;
+      renderSwitcher(); renderView();
+      void colDefs;
+      return;
+    }
+    var stmts = dAlterPreviewSql();
+    if (stmts.length === 0) {
+      d.hasChanges = false;
+      toast('没有需要保存的结构变更');
+      renderDesigner();
+      return;
+    }
+    showAlterPreview(stmts);
+  }
+  function showAlterPreview(stmts) {
+    var id = 'alterModal';
+    var html = '<div class="dialog-overlay" id="' + id + '" onclick="QL.alterOverlay(event)"><div class="dialog" role="dialog" aria-modal="true" style="width:560px">' +
+      '<div class="dialog-header"><h3>表结构保存（diff → ALTER 序列）</h3><button class="dialog-close" onclick="QL.closeAlter()">&times;</button></div>' +
+      '<div class="dialog-body"><pre class="sql-preview">' + esc(stmts.join('\n')) + '</pre></div>' +
+      '<div class="dialog-footer"><button class="btn btn-secondary" onclick="QL.closeAlter()">取消</button><button class="btn btn-primary" onclick="QL.confirmAlter()">确认执行</button></div>' +
+      '</div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+    S._alterStmts = stmts;
+  }
+  function alterOverlay(e) { if (e.target === e.currentTarget) closeAlter(); }
+  function closeAlter() { closeModal('alterModal'); }
+  function confirmAlter() {
+    closeAlter();
+    var d = S.designer;
+    d.columns.forEach(function (c) { c.isOriginal = true; });
+    d.original = JSON.parse(JSON.stringify(d.columns));
+    d.originalInfo = JSON.parse(JSON.stringify(d.tableInfo));
+    d.hasChanges = false;
+    toast('表结构保存成功（' + S._alterStmts.length + ' 条 ALTER 已执行）');
+    renderDesigner();
+  }
+  function dClose() {
+    S.creatingNewTable = false; S.targetDatabase = '';
+    S.viewMode = S.currentTable ? 'grid' : 'query';
+    renderSwitcher(); renderView();
+  }
+  function demoAlterPreview() {
+    if (!S.currentTable) S.currentTable = 'shop.users';
+    initDesigner(false, S.currentTable, '');
+    S.designer.columns[1].type = 'VARCHAR';
+    S.designer.columns[1].length = '120';
+    S.designer.columns.push({ name: 'email_verified', type: 'TINYINT', length: '1', nullable: true, primaryKey: false, autoIncrement: false, defaultValue: '0', comment: '邮箱已验证', isOriginal: false });
+    S.designer.hasChanges = true;
+    setViewMode('design');
+    toast('已构造结构变更，点「保存」查看 diff → ALTER 预览', 'info');
+  }
+  function demoValidateError() {
+    initDesigner(true, null, 'shop');
+    S.designer.columns = [
+      { name: '1bad-name', type: 'VARCHAR', length: '50', nullable: true, primaryKey: false, autoIncrement: false, defaultValue: '', comment: '', isOriginal: false },
+      { name: 'pk_a', type: 'INT', length: '', nullable: false, primaryKey: true, autoIncrement: false, defaultValue: '', comment: '', isOriginal: false },
+      { name: 'pk_b', type: 'INT', length: '', nullable: false, primaryKey: true, autoIncrement: false, defaultValue: '', comment: '', isOriginal: false }
+    ];
+    S.viewMode = 'design';
+    renderSwitcher(); renderView();
+    setTimeout(function () { dSave(); }, 100);
+  }
+
+  /* ==================== 结构对比（PAGE008） ==================== */
+  var SYNC_DEMO = null;
+  function buildSyncDemo() {
+    SYNC_DEMO = {
+      sourceTables: 4, targetTables: 4,
+      tablesToAdd: ['products'],
+      tablesToRemove: ['legacy_users'],
+      diffs: [
+        {
+          table: 'users', status: 'modified',
+          columnsToAdd: [{ name: 'email_verified', column_type: 'tinyint(1)', nullable: true, default: '0' }],
+          columnsToRemove: [{ name: 'legacy_field', column_type: 'varchar(32)' }],
+          columnsToModify: [{ column: { name: 'age', column_type: 'INT' }, oldType: 'TINYINT', newType: 'INT' }],
+          hasIndexDiff: true
+        },
+        { table: 'products', status: 'add', columnsToAdd: [], columnsToRemove: [], columnsToModify: [], hasIndexDiff: false },
+        { table: 'legacy_users', status: 'remove', columnsToAdd: [], columnsToRemove: [], columnsToModify: [], hasIndexDiff: false }
+      ]
+    };
+  }
+  function syncGenerateSql(selectedOnly) {
+    var out = '-- 数据同步脚本\n-- 源数据库: ' + S.sync.src + '\n-- 目标数据库: ' + S.sync.dst + '\n-- 生成时间: ' + new Date().toLocaleString('zh-CN') + '\n\n';
+    SYNC_DEMO.diffs.forEach(function (d) {
+      if (selectedOnly && !S.sync.selected[d.table]) return;
+      if (d.status === 'add') {
+        out += '-- 表 ' + d.table + ' 需要手动创建\n-- 请从源数据库导出 CREATE TABLE 语句\n\n';
+      } else if (d.status === 'remove') {
+        out += '-- 删除表 ' + d.table + '\nDROP TABLE IF EXISTS `' + S.sync.dst + '`.`' + d.table + '`;\n\n';
+      } else {
+        if (d.columnsToAdd.length) {
+          out += '-- 为表 ' + d.table + ' 添加列\nALTER TABLE `' + S.sync.dst + '`.`' + d.table + '`\n' +
+            d.columnsToAdd.map(function (c) { return '  ADD COLUMN `' + c.name + '` ' + c.column_type + (c.nullable ? '' : ' NOT NULL') + (c.default ? ' DEFAULT ' + c.default : ''); }).join(',\n') + ';\n\n';
+        }
+        if (d.columnsToRemove.length) {
+          out += '-- 从表 ' + d.table + ' 删除列\nALTER TABLE `' + S.sync.dst + '`.`' + d.table + '`\n' +
+            d.columnsToRemove.map(function (c) { return '  DROP COLUMN `' + c.name + '`'; }).join(',\n') + ';\n\n';
+        }
+        if (d.columnsToModify.length) {
+          out += '-- 修改表 ' + d.table + ' 的列类型\n' +
+            d.columnsToModify.map(function (c) { return 'ALTER TABLE `' + S.sync.dst + '`.`' + d.table + '`\n  MODIFY COLUMN `' + c.column.name + '` ' + c.newType + ';'; }).join('\n') + '\n\n';
+        }
+      }
+    });
+    return out;
+  }
+  function renderSync() {
+    var sec = $('syncSec'); if (!sec) return;
+    buildSyncDemo();
+    var sy = S.sync;
+    var html = '<div class="datasync-container"><div class="datasync-header"><h2>结构对比</h2><button class="btn-close-x" onclick="QL.syncClose()">&times;</button></div><div class="datasync-body">';
+    html += '<div class="sync-config"><div class="mode-note">当前页面用于比较两个数据库的表结构差异，并生成/执行结构变更 SQL。暂不提供真实数据同步。</div>' +
+      '<div class="config-row">' +
+      '<div class="config-item"><label for="sync-src">源数据库</label><select id="sync-src" onchange="QL.syncSet(\'src\',this.value)"><option value="">-- 选择数据库 --</option>' + S.databases.map(function (d) { return '<option' + (sy.src === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div>' +
+      '<span class="config-arrow">→</span>' +
+      '<div class="config-item"><label for="sync-dst">目标数据库</label><select id="sync-dst" onchange="QL.syncSet(\'dst\',this.value)"><option value="">-- 选择数据库 --</option>' + S.databases.map(function (d) { return '<option' + (sy.dst === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div>' +
+      '<div class="config-item"><label for="sync-mode">同步模式</label><select disabled><option>仅结构（当前支持）</option></select></div>' +
+      '<button class="btn btn-primary" style="padding:8px 20px" onclick="QL.syncCompare()" ' + (sy.comparing ? 'disabled' : '') + '>' + (sy.comparing ? '比较中...' : '开始比较') + '</button>' +
+      '</div></div>';
+    if (sy.error) html += '<div class="sync-error"><span>⚠️</span>\n' + esc(sy.error) + '</div>';
+    if (sy.comparing) {
+      html += '<div style="display:flex;flex-direction:column;align-items:center;padding:60px;color:#888"><div class="spinner"></div>比较中...（场景锁定：切换场景库继续）</div>';
+    } else if (sy.result) {
+      var r = sy.result;
+      var selCount = Object.keys(sy.selected).filter(function (k) { return sy.selected[k]; }).length;
+      html += '<div class="sync-result">';
+      html += '<div class="sync-summary">' +
+        '<div class="summary-item"><span class="summary-label">源表数:</span><span class="summary-value">' + r.sourceTables + '</span></div>' +
+        '<div class="summary-item"><span class="summary-label">目标表数:</span><span class="summary-value">' + r.targetTables + '</span></div>' +
+        '<div class="summary-item"><span class="summary-label">新增表:</span><span class="summary-value add">' + r.tablesToAdd.length + '</span></div>' +
+        '<div class="summary-item"><span class="summary-label">删除表:</span><span class="summary-value remove">' + r.tablesToRemove.length + '</span></div>' +
+        '<div class="summary-item"><span class="summary-label">差异表:</span><span class="summary-value modify">' + r.diffs.filter(function (d) { return d.status === 'modified'; }).length + '</span></div>' +
+        '<div class="summary-item"><span class="summary-label">已选中:</span><span class="summary-value">' + selCount + '</span></div>' +
+        '</div>';
+      html += '<div class="diff-list"><div class="diff-list-header"><label class="select-all"><input type="checkbox" onchange="QL.syncSelectAll()" ' + (selCount === r.diffs.length && r.diffs.length > 0 ? 'checked' : '') + '> 全选</label></div><div class="diff-items">';
+      if (r.diffs.length === 0) {
+        html += '<div class="diff-empty">没有发现结构差异，两个数据库结构相同</div>';
+      }
+      r.diffs.forEach(function (d) {
+        var sel = sy.selected[d.table];
+        html += '<div class="diff-item ' + d.status + (sel ? ' selected' : '') + '">' +
+          '<label class="select-all" style="margin-right:10px"><input type="checkbox" ' + (sel ? 'checked' : '') + ' onchange="QL.syncToggle(\'' + d.table + '\')"></label>' +
+          '<div class="diff-info" onclick="QL.syncDetail(\'' + d.table + '\')"><div class="diff-table-name">' + esc(d.table) + '</div><div class="diff-status">' +
+          (d.status === 'add' ? '<span class="status-badge add">新增</span>' : d.status === 'remove' ? '<span class="status-badge remove">删除</span>' : '<span class="status-badge modify">有差异</span>') +
+          (d.columnsToAdd.length ? '<span class="diff-detail">+' + d.columnsToAdd.length + ' 列</span>' : '') +
+          (d.columnsToRemove.length ? '<span class="diff-detail">-' + d.columnsToRemove.length + ' 列</span>' : '') +
+          (d.columnsToModify.length ? '<span class="diff-detail">~' + d.columnsToModify.length + ' 列</span>' : '') +
+          (d.hasIndexDiff ? '<span class="diff-detail">索引差异</span>' : '') +
+          '</div></div></div>';
+      });
+      html += '</div></div>';
+      if (sy.detail) {
+        var dd = sy.detail;
+        html += '<div class="detail-panel"><div class="detail-header"><div class="detail-title"><span>表结构详情: ' + esc(dd.table) + '</span>' +
+          '<span class="detail-status-badge ' + (dd.status === 'modified' ? 'modified' : dd.status) + '">' + (dd.status === 'add' ? '新增表' : dd.status === 'remove' ? '删除表' : '结构差异') + '</span></div>' +
+          '<button class="btn-close-x" style="font-size:18px" onclick="QL.syncCloseDetail()">&times;</button></div>';
+        if (dd.status === 'modified' && (dd.columnsToAdd.length + dd.columnsToRemove.length + dd.columnsToModify.length) > 0) {
+          html += '<div class="detail-section"><h4>列差异</h4><div class="diff-table-header"><div>列名</div><div>状态</div><div>源类型</div><div>目标类型</div><div>可空</div><div>默认值</div></div>';
+          dd.columnsToAdd.forEach(function (c) { html += '<div class="diff-table-row add"><div>' + esc(c.name) + '</div><div>● 新增</div><div>' + esc(c.column_type) + '</div><div>-</div><div>' + (c.nullable ? 'NULL' : 'NOT NULL') + '</div><div>' + esc(c.default || '-') + '</div></div>'; });
+          dd.columnsToRemove.forEach(function (c) { html += '<div class="diff-table-row remove"><div>' + esc(c.name) + '</div><div>● 删除</div><div>-</div><div>' + esc(c.column_type) + '</div><div>-</div><div>-</div></div>'; });
+          dd.columnsToModify.forEach(function (c) { html += '<div class="diff-table-row modify"><div>' + esc(c.column.name) + '</div><div>● 修改</div><div>' + esc(c.newType) + '</div><div>' + esc(c.oldType) + '</div><div>-</div><div>-</div></div>'; });
+          html += '</div>';
+        } else {
+          html += '<div class="detail-section"><p class="detail-info">' + (dd.status === 'add' ? '这是源数据库中的新表，需要创建完整表结构。' : dd.status === 'remove' ? '这是目标数据库中存在但源数据库中不存在的表。' : '没有发现列结构差异。') + '</p></div>';
+        }
+        if (dd.hasIndexDiff) html += '<div class="detail-section"><h4>索引差异</h4><p class="detail-info">检测到索引结构存在差异，请同步后检查索引定义。</p></div>';
+        if (dd.status === 'modified') {
+          html += '<div class="detail-section"><h4>同步 SQL 预览</h4><pre class="sql-preview">' + esc(syncGenerateSql(false).split('\n\n').filter(function (b) { return b.indexOf(dd.table) >= 0; }).join('\n\n')) + '</pre></div>';
+        }
+        html += '</div>';
+      }
+      html += '<div class="sync-actions">' +
+        '<button class="btn-action btn-copy" onclick="QL.syncCopy()" ' + (selCount === 0 ? 'disabled' : '') + '>📋 复制 SQL</button>' +
+        '<button class="btn-action btn-export" onclick="QL.syncExport()" ' + (selCount === 0 ? 'disabled' : '') + '>💾 导出 SQL</button>' +
+        '<button class="btn-action btn-sync" onclick="QL.syncExec()" ' + (selCount === 0 ? 'disabled' : '') + '>▶ 执行同步</button>' +
+        '</div></div>';
+    }
+    html += '</div></div>';
+    sec.innerHTML = html;
+  }
+  function syncSet(k, v) { S.sync[k] = v; }
+  function syncCompare() {
+    var sy = S.sync;
+    if (!sy.src || !sy.dst) { toast('请选择源数据库和目标数据库', 'error'); return; }
+    if (sy.src === sy.dst) { toast('源数据库和目标数据库不能相同', 'error'); return; }
+    sy.comparing = true; sy.error = null; sy.result = null; sy.detail = null; sy.selected = {};
+    renderSync();
+    setTimeout(function () {
+      sy.comparing = false;
+      if (S.scenario === 'conn-fail') {
+        sy.error = "连接失败: Lost connection to MySQL server during query (errno 2013)";
+        renderSync(); return;
+      }
+      if (S.scenario === 'sql-error') {
+        sy.error = "SQL 错误: SELECT command denied to user 'qa'@'%' for table 'information_schema.TABLES' (1142)";
+        renderSync(); return;
+      }
+      if (S.scenario === 'empty') {
+        sy.result = { sourceTables: 3, targetTables: 3, tablesToAdd: [], tablesToRemove: [], diffs: [] };
+      } else {
+        sy.result = { sourceTables: SYNC_DEMO.sourceTables, targetTables: SYNC_DEMO.targetTables, tablesToAdd: SYNC_DEMO.tablesToAdd, tablesToRemove: SYNC_DEMO.tablesToRemove, diffs: SYNC_DEMO.diffs };
+        SYNC_DEMO.diffs.forEach(function (d) { sy.selected[d.table] = true; });
+      }
+      renderSync();
+    }, 700);
+  }
+  function syncToggle(t) { S.sync.selected[t] = !S.sync.selected[t]; renderSync(); }
+  function syncSelectAll() {
+    var sy = S.sync;
+    var all = Object.keys(sy.selected).filter(function (k) { return sy.selected[k]; }).length === sy.result.diffs.length;
+    sy.result.diffs.forEach(function (d) { sy.selected[d.table] = !all; });
+    renderSync();
+  }
+  function syncDetail(t) {
+    S.sync.detail = S.sync.result.diffs.filter(function (d) { return d.table === t; })[0] || null;
+    renderSync();
+  }
+  function syncCloseDetail() { S.sync.detail = null; renderSync(); }
+  function syncCopy() {
+    var sql = syncGenerateSql(true);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(sql).then(function () { toast('SQL 已复制到剪贴板'); }, function () { toast('复制失败: 剪贴板不可用（file:// 环境）', 'error'); });
+    } else {
+      toast('复制失败: 剪贴板不可用（file:// 环境）', 'error');
+    }
+  }
+  function syncExport() {
+    var sql = syncGenerateSql(true);
+    var fn = 'sync_' + S.sync.src + '_to_' + S.sync.dst + '_' + Date.now() + '.sql';
+    var ok = download(fn, sql);
+    toast(ok ? 'SQL 已导出: ' + fn : '浏览器下载不可用（仅模拟）', ok ? 'success' : 'info');
+  }
+  function syncExec() {
+    confirmAction({
+      title: '确认执行结构变更',
+      message: '此操作会直接修改目标数据库结构，且不可撤销。建议先完成 SQL 备份。',
+      confirmLabel: '执行变更', cancelLabel: '取消', tone: 'danger'
+    }).then(function (ok) {
+      if (!ok) { toast('已取消结构变更', 'info'); return; }
+      var sql = syncGenerateSql(true);
+      var n = sql.split(';').filter(function (x) { return x.trim() && x.trim().indexOf('--') !== 0; }).length;
+      toast('结构变更已执行完成（' + n + ' 条语句已执行，Schema 树已刷新）');
+      status('结构变更已执行完成');
+      S.sync.result = null; S.sync.detail = null;
+      renderSync();
+    });
+  }
+  function syncClose() { setViewMode('query'); }
+  function demoSyncSame() {
+    setViewMode('sync');
+    S.sync.src = 'shop'; S.sync.dst = 'shop';
+    renderSync();
+    setTimeout(syncCompare, 200);
+  }
+  function demoSyncDetail() {
+    setViewMode('sync');
+    S.sync.src = 'shop'; S.sync.dst = 'shop_copy';
+    if (S.databases.indexOf('shop_copy') < 0) { S.databases.push('shop_copy'); }
+    renderSync();
+    setTimeout(function () { syncCompare(); setTimeout(function () { syncDetail('users'); }, 900); }, 200);
+  }
+  function demoSyncExec() {
+    demoSyncDetail();
+    toast('差异加载后点「▶ 执行同步」体验 danger 确认', 'info');
+  }
+
+  /* ==================== 备份还原（PAGE009） ==================== */
+  function renderBackup() {
+    var sec = $('backupSec'); if (!sec) return;
+    var b = S.backup;
+    var html = '<div class="backup-container"><div class="backup-header"><div class="backup-title">' +
+      '<button class="mode-tab' + (b.tab === 'export' ? ' active' : '') + '" onclick="QL.backupSwitch(\'export\')">📤 导出备份</button>' +
+      '<button class="mode-tab' + (b.tab === 'import' ? ' active' : '') + '" onclick="QL.backupSwitch(\'import\')">📥 导入还原</button>' +
+      '</div><button class="btn-close-x" onclick="QL.backupClose()">&times;</button></div><div class="backup-content">';
+    if (b.tab === 'export') {
+      html += '<div class="form-section"><div class="form-group"><label for="backup-export-database">选择数据库</label>' +
+        '<select id="backup-export-database" onchange="QL.backupDbChange(this.value)"><option value="">-- 请选择 --</option>' +
+        S.databases.map(function (d) { return '<option' + (b.db === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div></div>';
+      if (b.db) {
+        html += '<div class="form-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:12px;font-weight:600"><span>选择表 (' + b.selectedTables.length + '/' + b.tables.length + ')</span>' +
+          '<button class="btn-link" onclick="QL.backupToggleAll()">' + (b.selectedTables.length === b.tables.length ? '取消全选' : '全选') + '</button></div>' +
+          '<div class="tables-grid">' + b.tables.map(function (t) {
+            return '<label class="table-checkbox"><input type="checkbox" ' + (b.selectedTables.indexOf(t) >= 0 ? 'checked' : '') + ' onchange="QL.backupToggleTable(\'' + t + '\')"><span class="table-name">' + esc(t) + '</span></label>';
+          }).join('') + '</div></div>';
+        html += '<div class="form-section"><div class="form-group"><div class="field-label">导出类型</div><div class="radio-group"><label class="radio-item"><input type="radio" checked><span>结构 + 数据（SQL）</span></label></div></div>' +
+          '<div class="form-group"><div class="field-label">导出格式</div><div class="field-static">仅支持 SQL (.sql)</div></div></div>';
+        html += '<div class="action-section"><button class="btn-export-full" onclick="QL.backupExport()" ' + (b.exporting || b.selectedTables.length === 0 ? 'disabled' : '') + '>' + (b.exporting ? '导出中...' : '📤 开始导出') + '</button>';
+        if (b.exporting) {
+          html += '<div class="progress-bar"><div class="progress-fill" style="width:' + b.progress + '%"></div></div><div class="progress-status">' + esc(b.status) + '</div>';
+        }
+        if (b.result) {
+          html += '<div class="result-message ' + (b.result.success ? 'success' : 'error') + '">' +
+            (b.result.success ? '<div>✓ 导出成功</div><div class="result-details">保存位置: ' + esc(b.result.file) + '<br>表数量: ' + b.result.tables + '</div>'
+              : '<div>✗ 导出失败</div><div class="result-details">' + esc(b.result.error) + '</div>') + '</div>';
+        }
+        html += '</div>';
+      }
+    } else {
+      html += '<div class="mode-note" style="margin-bottom:14px">当前导入仅支持 SQL 备份文件。</div>';
+      html += '<div class="form-section"><div class="form-group"><label for="backup-import-database">目标数据库</label><select id="backup-import-database" onchange="QL.backupImportDb(this.value)"><option value="">-- 请选择 --</option>' +
+        S.databases.map(function (d) { return '<option' + (b.importDb === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div></div>';
+      html += '<div class="form-section"><div class="form-group"><label for="backup-import-file">备份文件</label><div class="file-selector">' +
+        '<input type="text" id="backup-import-file" value="' + esc(b.importFile) + '" placeholder="选择备份文件..." readonly>' +
+        '<button class="btn-browse" onclick="QL.backupBrowse()">浏览 SQL</button></div></div>' +
+        '<div class="form-group"><label class="checkbox-item"><input type="checkbox" ' + (b.dropExisting ? 'checked' : '') + ' onchange="QL.backupDropExisting(this.checked)"><span>导入前删除现有表（谨慎使用）</span></label></div></div>';
+      html += '<div class="action-section"><button class="btn-import-full" onclick="QL.backupImport()" ' + (b.importing || !b.importFile || !b.importDb ? 'disabled' : '') + '>' + (b.importing ? '导入中...' : '📥 开始导入') + '</button>';
+      if (b.importing) {
+        html += '<div class="progress-bar"><div class="progress-fill" style="width:' + b.importProgress + '%"></div></div><div class="progress-status">' + esc(b.importStatus) + '</div>';
+      }
+      if (b.importResult) {
+        html += '<div class="result-message ' + (b.importResult.success ? 'success' : 'error') + '">' +
+          (b.importResult.success ? '<div>✓ 导入成功</div><div class="result-details">导入表数: ' + b.importResult.tables + '<br>导入行数: ' + b.importResult.rows + '</div>'
+            : '<div>✗ 导入失败</div><div class="result-details">' + esc(b.importResult.error) + '</div>') + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div></div>';
+    sec.innerHTML = html;
+  }
+  function backupSwitch(tab) { S.backup.tab = tab; renderBackup(); }
+  function backupImportDb(v) { S.backup.importDb = v; }
+  function backupDropExisting(v) { S.backup.dropExisting = v; }
+  function backupDbChange(db) {
+    var b = S.backup;
+    b.db = db; b.result = null;
+    b.tables = db && TABLES[db] ? TABLES[db].filter(function (t) { return t.type !== 'VIEW'; }).map(function (t) { return t.name; }) : [];
+    b.selectedTables = b.tables.slice();
+    renderBackup();
+  }
+  function backupToggleTable(t) {
+    var b = S.backup;
+    b.selectedTables = b.selectedTables.indexOf(t) >= 0 ? b.selectedTables.filter(function (x) { return x !== t; }) : b.selectedTables.concat([t]);
+    renderBackup();
+  }
+  function backupToggleAll() {
+    var b = S.backup;
+    b.selectedTables = b.selectedTables.length === b.tables.length ? [] : b.tables.slice();
+    renderBackup();
+  }
+  function backupSaveDialog(defaultName) {
+    return confirmAction({ title: '保存数据库备份（系统保存对话框模拟）', message: '将备份保存为：\n' + defaultName, confirmLabel: '保存', cancelLabel: '取消', tone: 'info' });
+  }
+  function backupExport() {
+    var b = S.backup;
+    if (!b.db) { toast('请选择数据库', 'error'); return; }
+    if (b.selectedTables.length === 0) { toast('请选择至少一个表', 'error'); return; }
+    var fn = b.db + '_backup_' + Math.floor(Date.now() / 1000) + '.sql';
+    backupSaveDialog(fn).then(function (ok) {
+      if (!ok) { toast('已取消导出', 'info'); return; }
+      b.exporting = true; b.progress = 0; b.status = '准备导出...'; b.result = null;
+      renderBackup();
+      var timer = setInterval(function () {
+        b.progress += 25;
+        b.status = b.progress >= 100 ? '导出完成！' : '正在导出...';
+        renderBackup();
+        if (b.progress >= 100) {
+          clearInterval(timer);
+          b.exporting = false;
+          b.result = { success: true, file: '/Users/demo/Documents/' + fn, tables: b.selectedTables.length };
+          if (S.scenario === 'conn-fail' || S.scenario === 'sql-error') {
+            b.result = { success: false, error: S.scenario === 'conn-fail' ? '连接失败: MySQL server has gone away (2006)' : "SQL 错误: SELECT command denied to user 'qa' (1142)" };
+            toast('导出失败: ' + b.result.error, 'error');
+          } else {
+            toast('备份导出成功');
+          }
+          renderBackup();
+        }
+      }, 350);
+    });
+  }
+  function backupBrowse() {
+    var b = S.backup;
+    b.importFile = '/Users/demo/Downloads/shop_backup_1756800000.sql';
+    renderBackup();
+    toast('已选择备份文件（open 对话框模拟）', 'info');
+  }
+  function backupImport() {
+    var b = S.backup;
+    if (!b.importDb) { toast('请选择数据库', 'error'); return; }
+    if (!b.importFile) { toast('请选择导入文件', 'error'); return; }
+    b.importing = true; b.importProgress = 0; b.importStatus = '准备导入...'; b.importResult = null;
+    renderBackup();
+    var timer = setInterval(function () {
+      b.importProgress += 30;
+      b.importStatus = b.importProgress >= 100 ? '导入完成！' : '正在导入...';
+      renderBackup();
+      if (b.importProgress >= 100) {
+        clearInterval(timer);
+        b.importing = false;
+        if (S.scenario === 'conn-fail' || S.scenario === 'sql-error') {
+          b.importResult = { success: false, error: '读取文件失败: No such file or directory (os error 2)' };
+          toast('导入失败: 文件不可读', 'error');
+        } else {
+          b.importResult = { success: true, tables: 4, rows: 312 };
+          toast('备份导入成功' + (b.dropExisting ? '（已先删除现有表）' : ''));
+        }
+        renderBackup();
+      }
+    }, 350);
+  }
+  function backupClose() { setViewMode('query'); }
+  function demoBackupCancel() {
+    setViewMode('backup');
+    S.backup.tab = 'export';
+    if (!S.backup.db) backupDbChange('shop');
+    renderBackup();
+    toast('点「📤 开始导出」后在保存对话框选「取消」→ 提示「已取消导出」', 'info');
+  }
+
+  /* ==================== 侧滑面板（PAGE011） ==================== */
+  function openShell(which) { S.shell = which; renderShell(); }
+  function renderShell() {
+    closeShell();
+    if (!S.shell) return;
+    var titles = { settings: '设置', help: '帮助', about: '关于' };
+    var body = '';
+    if (S.shell === 'settings') {
+      body = '<section class="shell-section"><h3>安全与存储</h3><ul><li>连接密码存储在系统钥匙串中，不再写入 <code>connections.json</code>。</li><li>SQL 历史默认仅保留当前会话；如需本地保存，可在 SQL 编辑器历史面板中开启。</li><li>数据库备份当前仅支持 SQL 文件导出与导入。</li></ul></section>' +
+        '<section class="shell-section"><h3>当前限制</h3><ul><li>「结构对比（预览）」当前只支持结构差异分析与结构 SQL 执行，不提供真实数据同步。</li><li>结果面板仅在识别为"单表直接查询"时开放单元格编辑；复杂 SQL 结果默认只读。</li></ul></section>';
+    } else if (S.shell === 'help') {
+      body = '<section class="shell-section"><h3>快速开始</h3><ol><li>先在左上角连接区新建数据库连接。</li><li>用"测试连接"确认可达，再点击连接名称进入主工作区。</li><li>在 Schema 区选择表，进入数据网格或表设计视图。</li><li>在 SQL 查询页执行语句；历史记录和代码片段在编辑器工具栏中打开。</li></ol></section>' +
+        '<section class="shell-section"><h3>核心能力边界</h3><ul><li>备份还原：目前只支持 SQL 备份文件。</li><li>结构对比：目前仅支持结构差异对比与结构变更预演。</li><li>数据编辑：支持表格单元格编辑、插入、删除，但复杂批量修改仍建议先备份再操作。</li></ul></section>' +
+        '<section class="shell-section"><h3>快捷键</h3><ul><li><code>Ctrl+Enter</code>：执行 SQL</li><li><code>Ctrl+S</code>：格式化 SQL</li><li><code>Ctrl+H</code>：打开历史记录</li><li><code>Ctrl+K</code>：清空编辑器</li><li><code>F1</code>：插入 SQL 代码片段</li></ul></section>';
+    } else {
+      body = '<section class="shell-section"><h3>应用信息</h3><ul><li>版本：<code>0.1.0</code></li><li>平台：<code>macos</code></li><li>构建：<code>dev</code></li></ul></section>' +
+        '<section class="shell-section"><h3>定位</h3><p>QueryLab 是一个本地优先的数据库工作台，当前首期聚焦 MySQL / MariaDB，重点覆盖连接测试、Schema 浏览、SQL 执行、数据网格、表设计和 SQL 备份。</p></section>' +
+        '<section class="shell-section"><h3>当前发布阶段</h3><p>当前版本仍处于开发中，已具备核心工作流，但部分能力仍以预览或受限形态提供。</p></section>';
+    }
+    var html = '<div class="shell-panel-overlay" id="shellOverlay" onclick="QL.shellOverlay(event)"><div class="shell-panel" role="dialog" aria-modal="true">' +
+      '<div class="shell-panel-header"><div><div class="shell-panel-eyebrow">QueryLab · PAGE011</div><h2>' + titles[S.shell] + '</h2></div><button class="shell-panel-close" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer" onclick="QL.closeShell()">&times;</button></div>' +
+      '<div class="shell-panel-body">' + body + '</div></div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+  }
+  function shellOverlay(e) { if (e.target === e.currentTarget) closeShell(); }
+  function closeShell() { closeModal('shellOverlay'); }
+
+  /* ==================== 通知中心（PAGE010） ==================== */
+  function closeToast(id) { var n = $(id); if (n && n.parentNode) n.parentNode.removeChild(n); }
+  function confirmOverlayClick(e) { if (e.target === e.currentTarget) resolveConfirm(false); }
+  function resolveConfirm(v) {
+    var nodes = document.querySelectorAll('.confirm-overlay');
+    Array.prototype.forEach.call(nodes, function (n) { n.parentNode.removeChild(n); });
+    if (confirmResolver) { var r = confirmResolver; confirmResolver = null; r(v); }
+  }
+  function demoNotify() {
+    toast('连接已保存（成功通知 3.2s 自动消失）', 'success');
+    setTimeout(function () { toast('SQL 错误: syntax error near ...（错误通知 4.5s）', 'error'); }, 500);
+    setTimeout(function () { toast('视图不支持重命名（信息通知）', 'info'); }, 1000);
+  }
+  function toastMsg(m, l) { toast(m, l); }
+
+  /* ==================== 批量进度面板（PAGE012，未接线演示） ==================== */
+  function demoBatch() {
+    var stmts = [
+      { sql: 'START TRANSACTION;', type: 'transaction', icon: '🔒' },
+      { sql: "UPDATE `shop`.`products` SET stock = stock + 5 WHERE id = 1;", type: 'update', icon: '✏️' },
+      { sql: "UPDATE `shop`.`products` SET stock = stock + 8 WHERE id = 2;", type: 'update', icon: '✏️' },
+      { sql: "INSERT INTO `shop`.`audit` (`action`,`actor`) VALUES ('restock','qa');", type: 'insert', icon: '➕' },
+      { sql: 'COMMIT;', type: 'transaction', icon: '🔒' }
+    ];
+    var idx = 0;
+    var failedAt = S.scenario === 'sql-error' ? 3 : -1;
+    var id = 'batchModal';
+    var html = '<div class="batch-progress-overlay" id="' + id + '"><div class="batch-progress-panel">' +
+      '<div class="batch-header"><h3>⚡ 批量执行进度（PAGE012 · 旧项目未接线，评审演示）</h3><button class="btn-close-x" style="font-size:18px" onclick="QL.closeBatch()">&times;</button></div>' +
+      '<div class="batch-progress-bar"><div class="progress-track"><div class="progress-fill" id="bp-fill" style="width:0%"></div></div>' +
+      '<div class="progress-text"><span id="bp-text">0 / ' + stmts.length + ' 语句执行完成</span></div></div>' +
+      '<div class="batch-stats"><div class="stat-item"><span class="stat-label">总计</span><span class="stat-value">' + stmts.length + '</span></div>' +
+      '<div class="stat-item"><span class="stat-label">成功</span><span class="stat-value success" id="bp-ok">0</span></div>' +
+      '<div class="stat-item"><span class="stat-label">失败</span><span class="stat-value error" id="bp-fail">0</span></div></div>' +
+      '<div class="batch-statements" id="bp-list">' + stmts.map(function (s, i) {
+        return '<div class="statement-item pending" id="bp-' + i + '"><div class="statement-number">' + (i + 1) + '</div><div class="statement-icon">' + s.icon + '</div><div class="statement-content"><div class="statement-preview" title="' + esc(s.sql) + '">' + esc(s.sql.slice(0, 60)) + (s.sql.length > 60 ? '...' : '') + '</div><div class="statement-status" id="bps-' + i + '"></div></div></div>';
+      }).join('') + '</div>' +
+      '<div id="bp-error"></div>' +
+      '</div></div>';
+    $('modalRoot').insertAdjacentHTML('beforeend', html);
+    var ok = 0, fail = 0;
+    var timer = setInterval(function () {
+      if (idx >= stmts.length) {
+        clearInterval(timer);
+        if ($('bp-text')) $('bp-text').textContent = ok + ' / ' + stmts.length + ' 语句执行完成' + (fail > 0 ? '（已停止）' : '');
+        return;
+      }
+      var isFail = idx === failedAt;
+      if (isFail) failedAt = -2; else ok++;
+      var item = $('bp-' + idx);
+      if (item) {
+        item.className = 'statement-item ' + (isFail ? 'failed' : 'success');
+        $('bps-' + idx).textContent = isFail ? '✗ Unknown column \'actors\' in field list' : '✓ ' + (idx === 0 || idx === stmts.length - 1 ? '完成' : '1 行') + ' (12ms)';
+        item.querySelector('.statement-number').textContent = String(idx + 1);
+      }
+      if (isFail) {
+        fail++;
+        $('bp-error').innerHTML = '<div style="padding:12px 16px;border-top:1px solid #3e3e3e;background:#3c1f1e"><div style="font-size:11px;font-weight:600;color:#f48771;margin-bottom:6px">错误详情</div><pre style="margin:0;font-size:11px;color:#f48771;white-space:pre-wrap">SQL 错误: Unknown column \'actors\' in \'field list\' (1054)</pre></div>';
+      }
+      $('bp-fill').style.width = Math.round(((idx + 1) / stmts.length) * 100) + '%';
+      $('bp-text').innerHTML = (idx + 1) + ' / ' + stmts.length + ' 语句执行完成' + (fail > 0 ? '<span class="error-badge">有错误</span>' : '');
+      $('bp-ok').textContent = String(ok);
+      $('bp-fail').textContent = String(fail);
+      idx++;
+      if (fail > 0 && idx < stmts.length) {
+        for (var j = idx; j < stmts.length; j++) { var it = $('bp-' + j); if (it) it.style.opacity = '.4'; }
+        clearInterval(timer);
+        $('bp-text').innerHTML = ok + ' / ' + stmts.length + ' 语句执行完成<span class="error-badge">有错误</span>';
+      }
+    }, 600);
+  }
+  function closeBatch() { closeModal('batchModal'); }
+
+  /* ==================== 场景 ==================== */
+  function setScenario(id) {
+    S.scenario = id;
+    renderScenarioList();
+    var names = { success: '默认·成功', loading: '加载中', 'conn-fail': '失败·连接失败', 'sql-error': '失败·SQL 报错', empty: '空数据', exception: '异常·门禁' };
+    toast('场景已切换：' + names[id], 'info');
+    S.queryState = 'empty'; S.query = null; S.queryError = null; S.updateMessage = null; S.editingCell = null;
+    S.gridMessage = null;
+    renderView();
+  }
+
+  /* ==================== 键盘快捷键 ==================== */
+  document.addEventListener('keydown', function (e) {
+    var mod = e.ctrlKey || e.metaKey;
+    if (S.viewMode !== 'query') return;
+    if (mod && e.key === 'Enter') { e.preventDefault(); executeQuery(); }
+    else if (mod && (e.key === 's' || e.key === 'S')) { e.preventDefault(); formatSql(); }
+    else if (mod && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); toggleHistory(); }
+    else if (mod && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); clearSql(); }
+    else if (e.key === 'F1') { e.preventDefault(); openSnippets(); }
+    else if (e.key === 'Escape') {
+      closeContextMenu();
+      if (S.connForm) closeConnForm();
+    }
+  });
+
+  /* ==================== 对外暴露 & 初始化 ==================== */
+  window.QL = {
+    setScenario: setScenario,
+    openShell: openShell, closeShell: closeShell, shellOverlay: shellOverlay,
+    openConnForm: openConnForm, closeConnForm: closeConnForm, connFormOverlay: connFormOverlay,
+    saveConn: saveConn, testConnForm: testConnForm, testConnById: testConnById, testConnDemo: testConnDemo,
+    deleteConn: deleteConn, demoDangerConfirm: demoDangerConfirm, demoNoConn: demoNoConn,
+    selectConn: selectConn,
+    toggleDb: toggleDb, openCreateDb: openCreateDb, closeCreateDb: closeCreateDb, createDb: createDb, charsetChange: charsetChange, dbOverlay: dbOverlay,
+    tableContextMenu: tableContextMenu, closeContextMenu: closeContextMenu, ctxRefresh: ctxRefresh, ctxRename: ctxRename, ctxTruncate: ctxTruncate, ctxDrop: ctxDrop,
+    closeRename: closeRename, renameOverlay: renameOverlay, execRename: execRename, demoContextMenu: demoContextMenu,
+    createTable: createTable, openTable: openTable, setViewMode: setViewMode,
+    onSqlInput: onSqlInput, executeQuery: executeQuery, toggleBatch: toggleBatch, toggleTransaction: toggleTransaction,
+    toggleHistory: toggleHistory, loadHistory: loadHistory, clearHistory: clearHistory, togglePersistHistory: togglePersistHistory,
+    clearSql: clearSql, formatSql: formatSql, openSnippets: openSnippets, closeSnippets: closeSnippets, snippetOverlay: snippetOverlay, insertSnippet: insertSnippet,
+    demoSensitiveHistory: demoSensitiveHistory, demoBatchMode: demoBatchMode,
+    setActiveSet: setActiveSet, rpEdit: rpEdit, rpSave: rpSave, rpCancel: rpCancel, rpToggleNull: rpToggleNull, rpKey: rpKey,
+    exportResult: exportResult, demoExportResult: demoExportResult, demoEditableResult: demoEditableResult,
+    gridRefresh: gridRefresh, gridToggleRow: gridToggleRow, gridToggleAll: gridToggleAll,
+    gridPrev: gridPrev, gridNext: gridNext, gridGoto: gridGoto,
+    gridFilterKey: gridFilterKey, gridFilterColSet: gridFilterColSet, gridApplyFilter: gridApplyFilter, gridClearFilter: gridClearFilter, gridCloseMsg: gridCloseMsg,
+    gridEdit: gridEdit, gridKey: gridKey, gridAddRow: gridAddRow, gridDeleteSelected: gridDeleteSelected, gridExport: gridExport, gridNoPk: gridNoPk, demoEmptyGrid: demoEmptyGrid,
+    dChange: dChange, dAddCol: dAddCol, dDelCol: dDelCol, dCol: dCol, dInfo: dInfo, dSave: dSave, dClose: dClose,
+    closeAlter: closeAlter, alterOverlay: alterOverlay, confirmAlter: confirmAlter, demoAlterPreview: demoAlterPreview, demoValidateError: demoValidateError,
+    syncSet: syncSet, syncCompare: syncCompare, syncToggle: syncToggle, syncSelectAll: syncSelectAll, syncDetail: syncDetail, syncCloseDetail: syncCloseDetail,
+    syncCopy: syncCopy, syncExport: syncExport, syncExec: syncExec, syncClose: syncClose,
+    demoSyncSame: demoSyncSame, demoSyncDetail: demoSyncDetail, demoSyncExec: demoSyncExec,
+    backupSwitch: backupSwitch, backupDbChange: backupDbChange, backupToggleTable: backupToggleTable, backupToggleAll: backupToggleAll,
+    backupImportDb: backupImportDb, backupDropExisting: backupDropExisting,
+    backupExport: backupExport, backupBrowse: backupBrowse, backupImport: backupImport, backupClose: backupClose, demoBackupCancel: demoBackupCancel,
+    closeToast: closeToast, confirmOverlayClick: confirmOverlayClick, resolveConfirm: resolveConfirm, demoNotify: demoNotify, toastMsg: toastMsg,
+    demoBatch: demoBatch, closeBatch: closeBatch
+  };
+  S.backup.importDb = '';
+
+  function init() {
+    renderScenarioList();
+    renderNavList();
+    renderFeatList();
+    renderConnections();
+    renderSchema();
+    renderSwitcher();
+    renderView();
+    status('Ready');
+  }
+  init();
+})();
+</script>
+</body>
+</html>

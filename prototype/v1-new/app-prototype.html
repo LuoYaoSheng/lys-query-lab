@@ -1,0 +1,3035 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QueryLab V1 新版原型（P6）</title>
+<!--
+  QueryLab V1 新版原型（P6）
+  输入：docs/02_product/PRD.md（PRD v2.0，PAGE001-PAGE012 / F001-F057）
+        docs/06_review/PRODUCT_REVIEW.md（P4 审查：B1-B13 优化落地，缺陷不复刻）
+        docs/07_design_system/（P5：TOKEN / COMPONENT / PATTERN / ASSETS / GUIDELINES）
+  铁律：57 项功能不丢失；真实缺陷按修复后规格呈现并标注；禁止私加商业功能；
+        CSS 变量全部来自 docs/07_design_system/TOKEN.md；每页标注「编号+来源」；
+        单文件零外链；五态齐全（Loading/Empty/Error/Success/Permission）。
+-->
+<style>
+/* ========== Design Tokens（唯一定义源：docs/07_design_system/TOKEN.md） ========== */
+:root{
+  /* Color - background/surface */
+  --ql-bg-app:#1e1e1e; --ql-bg-panel:#252526; --ql-bg-raised:#2d2d2d;
+  --ql-bg-surface-3:#2a2d3e; --ql-bg-hover:#3e3e3e; --ql-bg-deep:#3c3c3c;
+  /* border */
+  --ql-border-default:#3e3e3e; --ql-border-card:#333; --ql-border-strong:#4e4e4e;
+  /* text */
+  --ql-text-primary:#d4d4d4; --ql-text-secondary:#888; --ql-text-heading:#f4f4f4; --ql-text-on-primary:#fff;
+  /* brand */
+  --ql-primary:#007acc; --ql-primary-hover:#005a9e; --ql-primary-pressed:#006cbd; --ql-focus-ring:#007acc;
+  /* semantic */
+  --ql-success:#4ec9b0; --ql-success-bg:#1e3a1e; --ql-success-strong:#2da042;
+  --ql-success-toast-bg:#1f4b2a; --ql-success-toast-border:#2f7a45;
+  --ql-danger:#f48771; --ql-danger-strong:#c73b3b; --ql-danger-bg:#3c1f1e; --ql-danger-toast-bg:#4b2424;
+  --ql-danger-toast-border:#8a3a3a; --ql-info-bg:#1f364b; --ql-info-border:#2f5f8a; --ql-warning:#dcdcaa;
+  /* view identity */
+  --ql-view-design:#9b46c8; --ql-view-design-border:#7a35a0;
+  --ql-view-sync:#0e639c; --ql-view-sync-border:#0a4a74;
+  --ql-view-backup:#c84e4e; --ql-view-backup-border:#a03535;
+  /* row states */
+  --ql-row-hover:#2a2d2e; --ql-row-selected:#1a3a2e; --ql-row-editing:#1a2d1e; --ql-row-new:#1e2d3e;
+  --ql-indicator-bg:#2a3a2e;
+  /* primary key */
+  --ql-pk-text:#c586c0; --ql-pk-bg:#252835;
+  /* value rendering */
+  --ql-value-null:#888; --ql-value-number:#b5cea8; --ql-value-string:#ce9178; --ql-value-bytes:#888;
+  /* SQL code (oneDark 实测值) */
+  --ql-code-bg:#282c34; --ql-code-fg:#abb2bf; --ql-code-caret:#528bff; --ql-code-selection:#3E4451;
+  --ql-code-keyword:#c678dd; --ql-code-string:#98c379; --ql-code-number:#d19a66; --ql-code-comment:#7d8799;
+  --ql-code-variable:#e06c75; --ql-code-typename:#e5c07b; --ql-code-operator:#56b6c2; --ql-code-meta:#61afef;
+  --ql-code-icon-keyword:#c586c0; --ql-code-icon-type:#4ec9b0; --ql-code-icon-table:#dcdcaa;
+  /* typography */
+  --ql-font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,sans-serif;
+  --ql-font-family-mono:'SF Mono',Monaco,'Cascadia Code','Roboto Mono',Consolas,monospace;
+  --ql-font-size-xs:11px; --ql-font-size-sm:12px; --ql-font-size-body:13px; --ql-font-size-md:14px;
+  --ql-font-size-lg:16px; --ql-font-size-xl:20px;
+  /* spacing & layout */
+  --ql-space-1:4px; --ql-space-2:8px; --ql-space-3:12px; --ql-space-4:16px; --ql-space-5:20px;
+  --ql-sidebar-width:280px; --ql-shellpanel-width:420px; --ql-history-width:320px;
+  --ql-topbar-height:48px; --ql-statusbar-height:24px;
+  /* radius & shadow */
+  --ql-radius-sm:4px; --ql-radius-md:6px; --ql-radius-lg:8px; --ql-radius-xl:10px;
+  --ql-shadow-toast:0 12px 30px rgba(0,0,0,.28); --ql-shadow-dialog:0 18px 40px rgba(0,0,0,.35);
+  --ql-overlay:rgba(0,0,0,.5);
+}
+/* ========== 基础 ========== */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--ql-font-family);background:#101014;color:var(--ql-text-primary);
+  font-size:var(--ql-font-size-body);overflow:hidden;height:100vh}
+button{font-family:inherit;cursor:pointer}
+.icon{width:16px;height:16px;flex:none;vertical-align:-3px}
+.icon-lg{width:48px;height:48px}
+/* ========== 评审舞台 ========== */
+.stage{display:flex;gap:14px;padding:14px;height:100vh;align-items:stretch}
+.window-frame{flex:1;min-width:0;display:flex;flex-direction:column;border:1px solid #000;
+  border-radius:8px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.5);background:var(--ql-bg-app)}
+.titlebar{height:28px;background:#151517;display:flex;align-items:center;gap:8px;padding:0 12px;flex:none}
+.dot{width:12px;height:12px;border-radius:50%}
+.dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+.titlebar .title{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);margin:0 auto;transform:translateX(-24px)}
+.app{flex:1;display:flex;flex-direction:column;min-height:0}
+/* ========== PAGE001 应用壳 ========== */
+.page-tag{display:inline-block;font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);
+  border:1px solid var(--ql-border-default);border-radius:var(--ql-radius-sm);padding:1px 6px;margin-left:8px}
+.topbar{height:var(--ql-topbar-height);display:flex;align-items:center;padding:0 var(--ql-space-4);
+  background:var(--ql-bg-raised);border-bottom:1px solid var(--ql-border-default);flex:none;gap:var(--ql-space-2)}
+.logo{font-size:var(--ql-font-size-lg);font-weight:600;color:var(--ql-primary);margin-right:var(--ql-space-4)}
+.topbar .grow{flex:1}
+.topbar .ver{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);margin-left:var(--ql-space-3)}
+.nav-btn{background:transparent;border:none;color:var(--ql-text-primary);padding:6px var(--ql-space-3);
+  border-radius:var(--ql-radius-sm);font-size:var(--ql-font-size-body);display:flex;align-items:center;gap:6px}
+.nav-btn:hover{background:var(--ql-bg-hover)}
+.main{flex:1;display:flex;min-height:0}
+/* 侧栏（PAGE002/PAGE003） */
+.sidebar{width:var(--ql-sidebar-width);background:var(--ql-bg-panel);
+  border-right:1px solid var(--ql-border-default);display:flex;flex-direction:column;flex:none;min-height:0}
+.sidebar-head{display:flex;justify-content:space-between;align-items:center;padding:var(--ql-space-3) var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default);font-size:var(--ql-font-size-sm);color:var(--ql-text-secondary)}
+.sidebar-head b{font-size:var(--ql-font-size-body);color:var(--ql-text-primary);font-weight:600}
+.conn-area{max-height:46%;display:flex;flex-direction:column;border-bottom:1px solid var(--ql-border-default)}
+.conn-list{overflow-y:auto;padding:var(--ql-space-2)}
+.conn-item{display:flex;align-items:center;padding:var(--ql-space-2) var(--ql-space-3);border-radius:var(--ql-radius-sm);
+  cursor:pointer;position:relative;gap:var(--ql-space-2)}
+.conn-item:hover{background:var(--ql-bg-hover)}
+.conn-item.active{background:var(--ql-bg-hover)}
+.conn-item.active::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:3px;
+  background:var(--ql-primary);border-radius:2px}
+.conn-info{flex:1;min-width:0}
+.conn-name{font-size:var(--ql-font-size-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conn-sub{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)}
+.conn-ops{display:none;gap:2px}
+.conn-item:hover .conn-ops,.conn-item:focus-within .conn-ops{display:flex}
+.icon-btn{background:transparent;border:none;color:var(--ql-text-secondary);padding:3px;border-radius:var(--ql-radius-sm);
+  display:inline-flex}
+.icon-btn:hover{background:var(--ql-bg-deep);color:var(--ql-text-primary)}
+.icon-btn.danger:hover{color:var(--ql-danger)}
+.dialect-badge{font-size:var(--ql-font-size-xs);border:1px solid var(--ql-info-border);color:var(--ql-warning);
+  border-radius:var(--ql-radius-sm);padding:0 4px}
+.empty-hint{color:var(--ql-text-secondary);font-size:var(--ql-font-size-body);padding:var(--ql-space-4);text-align:center}
+.schema-area{flex:1;display:flex;flex-direction:column;min-height:0}
+.tree-toolbar{display:flex;align-items:center;gap:var(--ql-space-2);padding:var(--ql-space-2) var(--ql-space-4);
+  background:var(--ql-bg-raised);border-bottom:1px solid var(--ql-border-default)}
+.btn{background:var(--ql-bg-hover);color:var(--ql-text-primary);border:1px solid transparent;border-radius:var(--ql-radius-sm);
+  padding:6px var(--ql-space-3);font-size:var(--ql-font-size-body);display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--ql-bg-deep)}
+.btn.primary{background:var(--ql-primary);color:var(--ql-text-on-primary)}
+.btn.primary:hover{background:var(--ql-primary-hover)}
+.btn.success{background:var(--ql-success-strong);color:#fff}
+.btn.danger{background:var(--ql-danger-strong);color:#fff}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:3px 8px;font-size:var(--ql-font-size-sm)}
+.tree{flex:1;overflow-y:auto;padding:var(--ql-space-2)}
+.db-node{display:flex;align-items:center;gap:6px;padding:5px var(--ql-space-2);border-radius:var(--ql-radius-sm);
+  cursor:pointer;font-size:var(--ql-font-size-body)}
+.db-node:hover{background:var(--ql-bg-hover)}
+.caret{width:12px;height:12px;color:var(--ql-text-secondary);transition:transform .12s}
+.db-node.open .caret{transform:rotate(90deg)}
+.db-children{padding-left:18px}
+.table-item{display:flex;align-items:center;gap:6px;padding:4px var(--ql-space-2);border-radius:var(--ql-radius-sm);
+  cursor:pointer;font-size:var(--ql-font-size-sm);color:var(--ql-text-primary)}
+.table-item:hover{background:var(--ql-bg-hover)}
+.table-item.active{background:var(--ql-bg-hover);box-shadow:inset 2px 0 0 var(--ql-primary)}
+.table-item .tname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.table-item.isview .tname{color:var(--ql-warning)}
+.table-item .tcomment{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);max-width:100px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.add-table-btn{width:100%;background:none;border:1px dashed var(--ql-border-strong);color:var(--ql-text-secondary);
+  border-radius:var(--ql-radius-sm);padding:4px;font-size:var(--ql-font-size-sm);margin:4px 0;
+  display:flex;align-items:center;justify-content:center;gap:6px}
+.add-table-btn:hover{color:var(--ql-primary);border-color:var(--ql-primary)}
+/* 工作区 */
+.workspace{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.view-switcher{display:flex;gap:var(--ql-space-2);padding:var(--ql-space-2) var(--ql-space-4);
+  background:var(--ql-bg-panel);border-bottom:1px solid var(--ql-border-default);align-items:center}
+.view-btn{background:transparent;border:1px solid transparent;border-radius:var(--ql-radius-sm);
+  color:var(--ql-text-secondary);padding:6px var(--ql-space-3);font-size:var(--ql-font-size-sm);
+  display:inline-flex;align-items:center;gap:6px}
+.view-btn:hover{background:var(--ql-bg-hover);color:var(--ql-text-primary)}
+.view-btn.active{background:var(--ql-primary);color:#fff;border-color:var(--ql-primary-hover)}
+.view-btn.v-design.active{background:var(--ql-view-design);border-color:var(--ql-view-design-border)}
+.view-btn.v-sync.active{background:var(--ql-view-sync);border-color:var(--ql-view-sync-border)}
+.view-btn.v-backup.active{background:var(--ql-view-backup);border-color:var(--ql-view-backup-border)}
+.creating-indicator{padding:var(--ql-space-2) var(--ql-space-4);background:var(--ql-indicator-bg);
+  color:var(--ql-success);font-size:var(--ql-font-size-sm);display:flex;align-items:center;gap:6px}
+.view{flex:1;min-height:0;display:none;flex-direction:column}
+.view.on{display:flex}
+/* ========== PAGE004 编辑器 ========== */
+.editor-toolbar{display:flex;align-items:center;gap:var(--ql-space-2);padding:var(--ql-space-2) var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default);flex-wrap:wrap}
+.conn-info-bar{margin-left:auto;font-size:var(--ql-font-size-sm);color:var(--ql-text-secondary);
+  display:flex;align-items:center;gap:6px}
+.shortcuts-hint{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)}
+.editor-body{flex:1;display:flex;min-height:0}
+.history-panel{width:var(--ql-history-width);border-right:1px solid var(--ql-border-default);
+  display:none;flex-direction:column;background:var(--ql-bg-panel);min-height:0}
+.history-panel.open{display:flex}
+.history-header{display:flex;justify-content:space-between;align-items:center;
+  padding:var(--ql-space-3) var(--ql-space-4);border-bottom:1px solid var(--ql-border-default);font-size:var(--ql-font-size-body)}
+.history-actions{display:flex;gap:var(--ql-space-2);padding:var(--ql-space-2) var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default)}
+.history-actions .btn{flex:1;justify-content:center;font-size:var(--ql-font-size-xs)}
+.history-notice{margin:var(--ql-space-2) var(--ql-space-4);padding:6px var(--ql-space-3);
+  background:var(--ql-info-bg);border:1px solid var(--ql-info-border);border-radius:var(--ql-radius-sm);
+  font-size:var(--ql-font-size-xs);color:var(--ql-text-primary)}
+.history-search-wrap{padding:var(--ql-space-2) var(--ql-space-4)}
+.history-search-input,.text-input{width:100%;background:var(--ql-bg-deep);border:1px solid var(--ql-border-strong);
+  color:var(--ql-text-primary);border-radius:var(--ql-radius-sm);padding:5px var(--ql-space-2);
+  font-size:var(--ql-font-size-sm);font-family:inherit}
+.history-search-input:focus,.text-input:focus{outline:none;border-color:var(--ql-focus-ring)}
+.history-list{flex:1;overflow-y:auto;padding:var(--ql-space-2)}
+.history-item{display:block;width:100%;text-align:left;background:none;border:none;
+  padding:var(--ql-space-2);border-radius:var(--ql-radius-sm);color:var(--ql-text-primary)}
+.history-item:hover{background:var(--ql-bg-hover)}
+.history-sql{font-family:var(--ql-font-family-mono);font-size:var(--ql-font-size-xs);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ql-code-fg)}
+.history-meta{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);margin-top:2px}
+.history-empty{color:var(--ql-text-secondary);text-align:center;padding:var(--ql-space-4);font-size:var(--ql-font-size-sm)}
+.editor-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+/* B2 分句预览条 */
+.stmt-preview{display:none;align-items:center;gap:var(--ql-space-2);padding:5px var(--ql-space-4);
+  background:var(--ql-info-bg);border-bottom:1px solid var(--ql-info-border);
+  font-size:var(--ql-font-size-xs);color:var(--ql-text-primary)}
+.stmt-preview.on{display:flex}
+.stmt-preview code{font-family:var(--ql-font-family-mono);color:var(--ql-warning)}
+/* B13 提示条 */
+.refill-notice{display:none;align-items:center;gap:var(--ql-space-2);padding:5px var(--ql-space-4);
+  background:var(--ql-info-bg);border-bottom:1px solid var(--ql-info-border);font-size:var(--ql-font-size-xs)}
+.refill-notice.on{display:flex}
+.refill-notice .x{margin-left:auto;background:none;border:none;color:var(--ql-text-secondary)}
+.editor-wrap{flex:1;display:flex;min-height:120px;background:var(--ql-code-bg);position:relative}
+.gutter{padding:8px 6px;font-family:var(--ql-font-family-mono);font-size:12px;line-height:1.55;
+  color:var(--ql-code-comment);text-align:right;user-select:none;overflow:hidden;flex:none;
+  border-right:1px solid var(--ql-border-default)}
+.code-area{position:relative;flex:1;min-width:0}
+.hl,.sql-input{font-family:var(--ql-font-family-mono);font-size:12px;line-height:1.55;
+  padding:8px 10px;white-space:pre-wrap;word-break:break-word;tab-size:2}
+.hl{position:absolute;inset:0;pointer-events:none;color:var(--ql-code-fg);overflow:hidden;margin:0}
+.sql-input{position:absolute;inset:0;width:100%;height:100%;background:transparent;border:none;resize:none;
+  color:transparent;caret-color:var(--ql-code-caret);outline:none}
+.tok-kw{color:var(--ql-code-keyword)} .tok-str{color:var(--ql-code-string)} .tok-num{color:var(--ql-code-number)}
+.tok-com{color:var(--ql-code-comment);font-style:italic} .tok-fn{color:var(--ql-code-typename)}
+.tok-op{color:var(--ql-code-operator)}
+/* 补全弹层（B8） */
+.ac-pop{position:absolute;z-index:900;background:var(--ql-bg-panel);border:1px solid var(--ql-border-default);
+  border-radius:var(--ql-radius-sm);box-shadow:var(--ql-shadow-dialog);min-width:220px;display:none;
+  max-height:180px;overflow-y:auto;font-size:var(--ql-font-size-sm)}
+.ac-pop.on{display:block}
+.ac-item{display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;color:var(--ql-text-primary)}
+.ac-item:hover{background:var(--ql-bg-hover)}
+.ac-note{padding:4px 10px;font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);
+  border-top:1px solid var(--ql-border-default)}
+/* ========== PAGE005 结果面板 ========== */
+.results-panel{flex:1;min-height:120px;border-top:1px solid var(--ql-border-default);
+  display:flex;flex-direction:column;background:var(--ql-bg-app)}
+.results-head{display:flex;align-items:center;gap:var(--ql-space-2);padding:var(--ql-space-2) var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default);flex-wrap:wrap}
+.result-tab{background:var(--ql-bg-hover);border:none;color:var(--ql-text-secondary);border-radius:var(--ql-radius-sm);
+  padding:4px 10px;font-size:var(--ql-font-size-sm)}
+.result-tab.active{background:var(--ql-primary);color:#fff}
+.results-info{margin-left:auto;font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);
+  display:flex;gap:var(--ql-space-3);align-items:center;flex-wrap:wrap}
+.readonly-reason{color:var(--ql-warning)}
+.update-msg{padding:6px var(--ql-space-4);font-size:var(--ql-font-size-sm);display:none}
+.update-msg.ok{display:block;background:var(--ql-success-bg);color:var(--ql-success)}
+.update-msg.err{display:block;background:var(--ql-danger-bg);color:var(--ql-danger)}
+.results-body{flex:1;overflow:auto;position:relative}
+.five-loading,.five-empty,.five-error,.five-msg{display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:var(--ql-space-3);height:100%;color:var(--ql-text-secondary);padding:var(--ql-space-4);text-align:center}
+.spinner{width:26px;height:26px;border:3px solid var(--ql-bg-hover);border-top-color:var(--ql-primary);
+  border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.five-error{align-items:stretch;justify-content:flex-start}
+.err-title{color:var(--ql-danger);font-size:var(--ql-font-size-md);display:flex;align-items:center;gap:6px;
+  padding:var(--ql-space-3) var(--ql-space-4) 0}
+.err-pre{font-family:var(--ql-font-family-mono);font-size:var(--ql-font-size-xs);color:var(--ql-danger);
+  background:var(--ql-danger-bg);border-radius:var(--ql-radius-sm);margin:var(--ql-space-2) var(--ql-space-4);
+  padding:var(--ql-space-3);overflow:auto;white-space:pre-wrap}
+/* 数据表通用（components C10/C11） */
+.datatable{width:100%;border-collapse:collapse;font-size:var(--ql-font-size-sm)}
+.datatable th{position:sticky;top:0;background:var(--ql-bg-surface-3);color:var(--ql-text-secondary);
+  font-weight:600;text-align:left;padding:6px 10px;border-bottom:1px solid var(--ql-border-default);font-size:var(--ql-font-size-xs)}
+.datatable th .ctype{display:block;font-weight:400;color:var(--ql-text-secondary);font-size:var(--ql-font-size-xs)}
+.datatable th.pk{color:var(--ql-pk-text);background:var(--ql-pk-bg)}
+.datatable td{padding:5px 10px;border-bottom:1px solid #2a2a2b;white-space:nowrap;max-width:260px;
+  overflow:hidden;text-overflow:ellipsis}
+.datatable tr:hover td{background:var(--ql-row-hover)}
+.datatable tr.selected-row td{background:var(--ql-row-selected)}
+.datatable tr.editing-row td{background:var(--ql-row-editing)}
+.datatable tr.new-row td{background:var(--ql-row-new)}
+.datatable td.pk-cell{background:var(--ql-pk-bg);color:var(--ql-pk-text)}
+.v-null{color:var(--ql-value-null);font-style:italic}
+.v-num{color:var(--ql-value-number)} .v-str{color:var(--ql-value-string)}
+.row-num{color:var(--ql-text-secondary);font-size:var(--ql-font-size-xs)}
+/* 可编辑单元格（C12 统一） */
+.cell-editor{display:flex;align-items:center;gap:4px}
+.cell-editor input{flex:1;min-width:60px;background:var(--ql-bg-deep);border:1px solid var(--ql-focus-ring);
+  color:var(--ql-text-primary);border-radius:var(--ql-radius-sm);padding:2px 6px;font-size:var(--ql-font-size-sm);
+  font-family:var(--ql-font-family-mono)}
+.cell-editor input.isnull{opacity:.55;font-style:italic}
+.cell-op{background:none;border:none;padding:2px;border-radius:var(--ql-radius-sm);display:inline-flex}
+.cell-op:hover{background:var(--ql-bg-hover)}
+.null-toggle{font-size:var(--ql-font-size-xs);border:1px solid var(--ql-border-strong);background:none;
+  color:var(--ql-text-secondary);border-radius:var(--ql-radius-sm);padding:1px 6px}
+.null-toggle.on{background:var(--ql-pk-bg);color:var(--ql-pk-text);border-color:var(--ql-pk-text)}
+/* ========== PAGE006 网格 ========== */
+.grid-toolbar{display:flex;align-items:center;gap:var(--ql-space-2);padding:var(--ql-space-2) var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default);flex-wrap:wrap}
+.vsep{width:1px;height:18px;background:var(--ql-border-default);margin:0 2px}
+.grid-filter{margin-left:auto;display:flex;gap:var(--ql-space-2);align-items:center;flex-wrap:wrap}
+.grid-filter select{background:var(--ql-bg-deep);color:var(--ql-text-primary);
+  border:1px solid var(--ql-border-strong);border-radius:var(--ql-radius-sm);padding:4px 6px;font-size:var(--ql-font-size-sm)}
+.grid-filter .text-input{width:160px}
+.msg-banner{display:flex;align-items:center;gap:var(--ql-space-2);padding:6px var(--ql-space-4);
+  font-size:var(--ql-font-size-sm);margin:var(--ql-space-2) var(--ql-space-4);border-radius:var(--ql-radius-sm)}
+.msg-banner.ok{background:var(--ql-success-bg);color:var(--ql-success)}
+.msg-banner.err{background:var(--ql-danger-bg);color:var(--ql-danger)}
+.msg-banner .x{margin-left:auto;background:none;border:none;color:inherit;cursor:pointer}
+.readonly-banner{margin:var(--ql-space-2) var(--ql-space-4);padding:8px var(--ql-space-3);
+  background:var(--ql-info-bg);border:1px solid var(--ql-info-border);border-radius:var(--ql-radius-sm);
+  font-size:var(--ql-font-size-sm);display:flex;gap:6px;align-items:center}
+.grid-body{flex:1;overflow:auto}
+.pagination{display:flex;align-items:center;gap:var(--ql-space-3);padding:var(--ql-space-2) var(--ql-space-4);
+  border-top:1px solid var(--ql-border-default);font-size:var(--ql-font-size-sm);color:var(--ql-text-secondary)}
+.page-input{width:44px;background:var(--ql-bg-deep);border:1px solid var(--ql-border-strong);color:var(--ql-text-primary);
+  border-radius:var(--ql-radius-sm);padding:2px 4px;text-align:center;font-size:var(--ql-font-size-sm)}
+/* ========== PAGE007 设计器 ========== */
+.designer-head{display:flex;align-items:center;gap:var(--ql-space-3);padding:var(--ql-space-3) var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default);flex-wrap:wrap}
+.designer-head h2{font-size:var(--ql-font-size-md);display:flex;align-items:center;gap:8px}
+.table-name-input{background:var(--ql-bg-deep);border:1px solid var(--ql-border-strong);color:var(--ql-text-primary);
+  border-radius:var(--ql-radius-sm);padding:5px 8px;font-size:var(--ql-font-size-sm);width:160px}
+.unsaved{color:var(--ql-warning);font-size:var(--ql-font-size-xs);border:1px solid var(--ql-warning);
+  border-radius:var(--ql-radius-sm);padding:1px 8px;display:none}
+.unsaved.on{display:inline-block}
+.error-banner{margin:var(--ql-space-2) var(--ql-space-4);padding:8px var(--ql-space-3);
+  background:var(--ql-danger-bg);color:var(--ql-danger);border-radius:var(--ql-radius-sm);
+  font-size:var(--ql-font-size-sm);display:none;white-space:pre-line}
+.error-banner.on{display:block}
+.designer-body{flex:1;overflow:auto;padding:var(--ql-space-4)}
+.section-title{font-size:var(--ql-font-size-body);font-weight:600;margin-bottom:var(--ql-space-2);display:flex;align-items:center;gap:6px}
+.cols-table{width:100%;border-collapse:collapse;font-size:var(--ql-font-size-sm);margin-bottom:var(--ql-space-5)}
+.cols-table th{background:var(--ql-bg-surface-3);color:var(--ql-text-secondary);font-weight:600;
+  padding:6px 8px;text-align:left;font-size:var(--ql-font-size-xs);border-bottom:1px solid var(--ql-border-default)}
+.cols-table td{padding:4px 6px;border-bottom:1px solid #2a2a2b}
+.cols-table input[type=text],.cols-table select{background:var(--ql-bg-deep);color:var(--ql-text-primary);
+  border:1px solid var(--ql-border-strong);border-radius:var(--ql-radius-sm);padding:3px 6px;
+  font-size:var(--ql-font-size-sm);width:100%}
+.cols-table input[type=checkbox]{accent-color:var(--ql-primary)}
+.new-col-row td{background:var(--ql-row-new)}
+.options-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--ql-space-3) var(--ql-space-4)}
+.options-grid label{display:flex;flex-direction:column;gap:4px;font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)}
+.options-grid input,.options-grid select{background:var(--ql-bg-deep);color:var(--ql-text-primary);
+  border:1px solid var(--ql-border-strong);border-radius:var(--ql-radius-sm);padding:5px 8px;font-size:var(--ql-font-size-sm)}
+.index-readonly{margin-top:var(--ql-space-4);padding:var(--ql-space-3);border:1px dashed var(--ql-border-strong);
+  border-radius:var(--ql-radius-sm);font-size:var(--ql-font-size-sm);color:var(--ql-text-secondary)}
+/* ========== PAGE008 对比 ========== */
+.sync-view{overflow:auto;padding:var(--ql-space-4)}
+.mode-note{font-size:var(--ql-font-size-xs);color:var(--ql-warning);margin-bottom:var(--ql-space-3)}
+.sync-config{display:flex;gap:var(--ql-space-3);align-items:end;flex-wrap:wrap;margin-bottom:var(--ql-space-4)}
+.sync-config label{display:flex;flex-direction:column;gap:4px;font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)}
+.sync-config select{background:var(--ql-bg-deep);color:var(--ql-text-primary);border:1px solid var(--ql-border-strong);
+  border-radius:var(--ql-radius-sm);padding:5px 8px;font-size:var(--ql-font-size-sm);min-width:150px}
+.summary-bar{display:flex;gap:var(--ql-space-4);flex-wrap:wrap;padding:var(--ql-space-2) 0;
+  border-top:1px solid var(--ql-border-default);border-bottom:1px solid var(--ql-border-default);margin-bottom:var(--ql-space-3)}
+.summary-item{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)}
+.summary-item b{color:var(--ql-text-primary);font-size:var(--ql-font-size-sm);margin-left:4px}
+.diff-list{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--ql-space-3)}
+.diff-item{display:flex;align-items:center;gap:var(--ql-space-2);padding:8px var(--ql-space-3);
+  background:var(--ql-bg-panel);border:1px solid var(--ql-border-card);border-radius:var(--ql-radius-sm);
+  cursor:pointer;border-left:3px solid transparent}
+.diff-item:hover{background:var(--ql-bg-hover)}
+.diff-item.add{border-left-color:var(--ql-success)} .diff-item.del{border-left-color:var(--ql-danger)}
+.diff-item.mod{border-left-color:var(--ql-warning)}
+.diff-item .tname{font-family:var(--ql-font-family-mono);font-size:var(--ql-font-size-sm)}
+.badge{font-size:var(--ql-font-size-xs);border-radius:var(--ql-radius-sm);padding:1px 8px}
+.badge.add{background:var(--ql-success-bg);color:var(--ql-success)}
+.badge.del{background:var(--ql-danger-bg);color:var(--ql-danger)}
+.badge.mod{background:rgba(220,220,170,.1);color:var(--ql-warning)}
+.col-tags{display:flex;gap:6px;margin-left:auto;font-size:var(--ql-font-size-xs)}
+.col-tags .add{color:var(--ql-success)} .col-tags .del{color:var(--ql-danger)} .col-tags .mod{color:var(--ql-warning)}
+.detail-panel{background:var(--ql-bg-panel);border:1px solid var(--ql-border-card);border-radius:var(--ql-radius-xl);
+  padding:var(--ql-space-4);margin-bottom:var(--ql-space-3)}
+.detail-panel h3{font-size:var(--ql-font-size-md);margin-bottom:var(--ql-space-2);display:flex;gap:8px;align-items:center}
+.diffcols-table{width:100%;border-collapse:collapse;font-size:var(--ql-font-size-sm);margin-bottom:var(--ql-space-3)}
+.diffcols-table th{color:var(--ql-text-secondary);font-size:var(--ql-font-size-xs);text-align:left;
+  padding:4px 8px;border-bottom:1px solid var(--ql-border-default)}
+.diffcols-table td{padding:4px 8px;border-bottom:1px solid #2a2a2b}
+.st-add{color:var(--ql-success)} .st-del{color:var(--ql-danger)} .st-mod{color:var(--ql-warning)}
+.sql-preview{font-family:var(--ql-font-family-mono);font-size:var(--ql-font-size-xs);background:var(--ql-code-bg);
+  color:var(--ql-code-fg);border-radius:var(--ql-radius-sm);padding:var(--ql-space-3);overflow:auto;
+  white-space:pre-wrap;max-height:220px}
+.sync-actions{display:flex;gap:var(--ql-space-2);flex-wrap:wrap}
+/* ========== PAGE009 备份 ========== */
+.backup-view{overflow:auto;padding:var(--ql-space-4)}
+.mode-tabs{display:flex;gap:var(--ql-space-2);margin-bottom:var(--ql-space-4)}
+.mode-tab{background:var(--ql-bg-hover);border:none;color:var(--ql-text-secondary);border-radius:var(--ql-radius-sm);
+  padding:6px var(--ql-space-4);font-size:var(--ql-font-size-body);display:flex;gap:6px;align-items:center}
+.mode-tab.active{background:var(--ql-primary);color:#fff}
+.backup-card{background:var(--ql-bg-panel);border:1px solid var(--ql-border-card);border-radius:var(--ql-radius-xl);
+  padding:var(--ql-space-4);max-width:640px}
+.backup-card h3{font-size:var(--ql-font-size-md);margin-bottom:var(--ql-space-3)}
+.backup-field{display:flex;flex-direction:column;gap:4px;margin-bottom:var(--ql-space-3)}
+.backup-field>span{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)}
+.backup-field select{background:var(--ql-bg-deep);color:var(--ql-text-primary);border:1px solid var(--ql-border-strong);
+  border-radius:var(--ql-radius-sm);padding:5px 8px;font-size:var(--ql-font-size-sm)}
+.tables-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--ql-space-2);margin:var(--ql-space-2) 0 var(--ql-space-3)}
+.tables-grid label{display:flex;align-items:center;gap:6px;font-size:var(--ql-font-size-sm);
+  background:var(--ql-bg-raised);border-radius:var(--ql-radius-sm);padding:4px 8px}
+.tables-grid input{accent-color:var(--ql-primary)}
+.radio-row{display:flex;gap:var(--ql-space-3);align-items:center;font-size:var(--ql-font-size-sm);margin-bottom:var(--ql-space-3)}
+.fmt-static{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);margin-bottom:var(--ql-space-3)}
+.file-row{display:flex;gap:var(--ql-space-2);align-items:center;margin-bottom:var(--ql-space-3)}
+.file-row .text-input{flex:1}
+.progress-track{height:8px;background:var(--ql-bg-hover);border-radius:4px;overflow:hidden;margin:var(--ql-space-2) 0}
+.progress-fill{height:100%;background:var(--ql-primary);width:0;transition:width .4s}
+.result-block{border-radius:var(--ql-radius-sm);padding:var(--ql-space-3);font-size:var(--ql-font-size-sm);
+  margin-top:var(--ql-space-2);display:none;white-space:pre-line}
+.result-block.ok{display:block;background:var(--ql-success-bg);color:var(--ql-success)}
+.result-block.err{display:block;background:var(--ql-danger-bg);color:var(--ql-danger)}
+/* ========== PAGE010 通知 ========== */
+.toast-stack{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:10px;z-index:2000;pointer-events:none}
+.toast{pointer-events:auto;min-width:280px;max-width:420px;padding:12px 14px;border-radius:var(--ql-radius-lg);
+  display:flex;justify-content:space-between;gap:12px;align-items:flex-start;
+  box-shadow:var(--ql-shadow-toast);color:#f4f4f4;font-size:var(--ql-font-size-body);line-height:1.4;
+  animation:toastIn .18s ease-out}
+@keyframes toastIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.toast.success{background:var(--ql-success-toast-bg);border:1px solid var(--ql-success-toast-border)}
+.toast.error{background:var(--ql-danger-toast-bg);border:1px solid var(--ql-danger-toast-border)}
+.toast.info{background:var(--ql-info-bg);border:1px solid var(--ql-info-border)}
+.toast .tclose{background:transparent;border:none;color:inherit;cursor:pointer;font-size:var(--ql-font-size-lg);line-height:1;padding:0}
+.confirm-overlay{position:fixed;inset:0;background:var(--ql-overlay);display:none;align-items:center;
+  justify-content:center;z-index:2100}
+.confirm-overlay.on{display:flex}
+.confirm-dialog{width:420px;max-width:calc(100vw - 32px);background:var(--ql-bg-panel);
+  border:1px solid var(--ql-border-default);border-radius:var(--ql-radius-xl);box-shadow:var(--ql-shadow-dialog)}
+.confirm-header,.confirm-body,.confirm-actions{padding:16px 18px}
+.confirm-header{border-bottom:1px solid var(--ql-border-default)}
+.confirm-header h3{font-size:var(--ql-font-size-lg);color:var(--ql-text-heading)}
+.confirm-body{color:var(--ql-text-primary);font-size:var(--ql-font-size-body);line-height:1.5}
+.confirm-actions{border-top:1px solid var(--ql-border-default);display:flex;justify-content:flex-end;gap:10px}
+.btn-cancel{background:var(--ql-bg-hover);color:var(--ql-text-primary);border:none;border-radius:var(--ql-radius-md);
+  padding:8px 14px;font-size:var(--ql-font-size-body)}
+.btn-confirm{border:none;border-radius:var(--ql-radius-md);padding:8px 14px;font-size:var(--ql-font-size-body);color:#fff}
+.btn-confirm.danger{background:var(--ql-danger-strong)} .btn-confirm.info{background:var(--ql-primary)}
+/* ========== 通用弹窗（C33） ========== */
+.modal-overlay{position:fixed;inset:0;background:var(--ql-overlay);display:none;
+  align-items:center;justify-content:center;z-index:2050}
+.modal-overlay.on{display:flex}
+.modal{background:var(--ql-bg-panel);border:1px solid var(--ql-border-default);border-radius:var(--ql-radius-xl);
+  box-shadow:var(--ql-shadow-dialog);width:500px;max-width:calc(100vw - 32px);max-height:86vh;
+  display:flex;flex-direction:column;animation:toastIn .15s ease-out}
+.modal.narrow{width:420px} .modal.wide{width:640px}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default)}
+.modal-head h3{font-size:var(--ql-font-size-md);display:flex;align-items:center;gap:8px}
+.modal-body{padding:var(--ql-space-4);overflow:auto}
+.modal-foot{display:flex;justify-content:flex-end;gap:var(--ql-space-2);padding:var(--ql-space-3) var(--ql-space-4);
+  border-top:1px solid var(--ql-border-default);align-items:center}
+.form-field{display:flex;flex-direction:column;gap:4px;margin-bottom:var(--ql-space-3)}
+.form-field>span{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)}
+.form-field input,.form-field select{background:var(--ql-bg-deep);color:var(--ql-text-primary);
+  border:1px solid var(--ql-border-strong);border-radius:var(--ql-radius-sm);padding:6px var(--ql-space-2);
+  font-size:var(--ql-font-size-body)}
+.form-help{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);display:flex;gap:4px;align-items:center}
+.test-block{border-radius:var(--ql-radius-sm);padding:var(--ql-space-3);font-size:var(--ql-font-size-sm);
+  margin-top:var(--ql-space-2);white-space:pre-line;display:none}
+.test-block.ok{display:block;background:var(--ql-success-bg);color:var(--ql-success)}
+.test-block.err{display:block;background:var(--ql-danger-bg);color:var(--ql-danger)}
+.test-block .btn{margin-top:8px}
+.snippet-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--ql-space-2)}
+.snippet-item{background:var(--ql-bg-raised);border:1px solid var(--ql-border-card);border-radius:var(--ql-radius-sm);
+  padding:var(--ql-space-2);text-align:left;color:var(--ql-text-primary)}
+.snippet-item:hover{border-color:var(--ql-primary)}
+.snippet-item .sname{font-size:var(--ql-font-size-sm);font-weight:600}
+.snippet-item .sprev{font-family:var(--ql-font-family-mono);font-size:var(--ql-font-size-xs);
+  color:var(--ql-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+/* 右键菜单 */
+.ctx-menu{position:fixed;z-index:2080;background:var(--ql-bg-panel);border:1px solid var(--ql-border-default);
+  border-radius:var(--ql-radius-sm);box-shadow:var(--ql-shadow-dialog);padding:4px;min-width:170px;display:none}
+.ctx-menu.on{display:block}
+.ctx-item{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--ql-text-primary);
+  padding:6px 10px;border-radius:var(--ql-radius-sm);font-size:var(--ql-font-size-body);text-align:left}
+.ctx-item:hover{background:var(--ql-bg-hover)}
+.ctx-item.danger{color:var(--ql-danger)}
+.ctx-sep{height:1px;background:var(--ql-border-default);margin:4px 6px}
+/* ========== PAGE011 侧滑面板 ========== */
+.shell-overlay{position:fixed;inset:0;background:var(--ql-overlay);display:none;z-index:2040}
+.shell-overlay.on{display:block}
+.shell-panel{position:fixed;top:0;right:0;bottom:0;width:var(--ql-shellpanel-width);background:var(--ql-bg-raised);
+  border-left:1px solid var(--ql-border-default);z-index:2045;display:flex;flex-direction:column;
+  transform:translateX(100%);transition:transform .18s ease-out}
+.shell-panel.on{transform:none}
+.shell-head{padding:18px var(--ql-space-5);border-bottom:1px solid var(--ql-border-default)}
+.shell-head .eyebrow{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);letter-spacing:2px}
+.shell-head h2{font-size:var(--ql-font-size-xl);color:var(--ql-text-heading);display:flex;justify-content:space-between;align-items:center}
+.shell-body{padding:var(--ql-space-5);overflow:auto}
+.shell-section{background:var(--ql-bg-panel);border:1px solid var(--ql-border-card);border-radius:var(--ql-radius-xl);
+  padding:var(--ql-space-4);margin-bottom:var(--ql-space-4)}
+.shell-section h3{font-size:var(--ql-font-size-md);margin-bottom:var(--ql-space-2)}
+.shell-section ul{padding-left:18px;font-size:var(--ql-font-size-sm);color:var(--ql-text-primary);line-height:1.7}
+.shell-section ol{padding-left:18px;font-size:var(--ql-font-size-sm);color:var(--ql-text-primary);line-height:1.7}
+.shell-section p{font-size:var(--ql-font-size-sm);line-height:1.6;color:var(--ql-text-primary)}
+kbd{font-family:var(--ql-font-family-mono);font-size:var(--ql-font-size-xs);background:var(--ql-bg-deep);
+  border:1px solid var(--ql-border-strong);border-bottom-width:2px;border-radius:var(--ql-radius-sm);padding:0 5px}
+/* ========== PAGE012 批量进度 ========== */
+.batch-overlay{position:fixed;inset:0;background:var(--ql-overlay);display:none;align-items:center;
+  justify-content:center;z-index:2060}
+.batch-overlay.on{display:flex}
+.batch-panel{width:560px;max-width:calc(100vw - 32px);background:var(--ql-bg-panel);
+  border:1px solid var(--ql-border-default);border-radius:var(--ql-radius-xl);box-shadow:var(--ql-shadow-dialog)}
+.batch-head{display:flex;justify-content:space-between;align-items:center;padding:var(--ql-space-3) var(--ql-space-4);
+  border-bottom:1px solid var(--ql-border-default);font-size:var(--ql-font-size-md)}
+.batch-body{padding:var(--ql-space-4)}
+.batch-stats{display:flex;gap:var(--ql-space-4);margin:var(--ql-space-2) 0 var(--ql-space-3);font-size:var(--ql-font-size-sm)}
+.batch-stats .errbadge{color:var(--ql-danger);border:1px solid var(--ql-danger);border-radius:var(--ql-radius-sm);
+  padding:0 8px;font-size:var(--ql-font-size-xs)}
+.stmt-list{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.stmt-item{display:flex;align-items:center;gap:var(--ql-space-2);padding:5px var(--ql-space-2);
+  background:var(--ql-bg-raised);border-radius:var(--ql-radius-sm);font-family:var(--ql-font-family-mono);
+  font-size:var(--ql-font-size-xs);color:var(--ql-text-primary)}
+.stmt-item .sprev{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stmt-item.pending{opacity:.45}
+.stmt-item.current{outline:1px solid var(--ql-primary)}
+.stmt-item.success{color:var(--ql-success)} .stmt-item.failed{color:var(--ql-danger)}
+.batch-error{font-family:var(--ql-font-family-mono);font-size:var(--ql-font-size-xs);color:var(--ql-danger);
+  background:var(--ql-danger-bg);border-radius:var(--ql-radius-sm);padding:var(--ql-space-2);
+  margin-top:var(--ql-space-2);display:none;white-space:pre-wrap}
+.batch-error.on{display:block}
+/* ========== 状态栏 ========== */
+.statusbar{height:var(--ql-statusbar-height);display:flex;justify-content:space-between;align-items:center;
+  padding:0 var(--ql-space-4);background:var(--ql-primary);color:#fff;font-size:var(--ql-font-size-sm);flex:none}
+/* ========== 评审面板 ========== */
+.review-panel{width:300px;flex:none;background:var(--ql-bg-panel);border:1px solid var(--ql-border-default);
+  border-radius:var(--radius-xl,10px);border-radius:var(--ql-radius-xl);display:flex;flex-direction:column;
+  overflow:hidden}
+.review-head{padding:10px 14px;border-bottom:1px solid var(--ql-border-default);
+  background:var(--ql-bg-raised)}
+.review-head h2{font-size:var(--ql-font-size-body);color:var(--ql-text-heading)}
+.review-head p{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);margin-top:2px}
+.review-body{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:12px}
+.review-sec h4{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);margin-bottom:6px;
+  text-transform:uppercase;letter-spacing:1px}
+.scene-btns{display:flex;flex-wrap:wrap;gap:6px}
+.scene-btn{background:var(--ql-bg-hover);color:var(--ql-text-primary);border:1px solid transparent;
+  border-radius:var(--ql-radius-sm);padding:4px 8px;font-size:var(--ql-font-size-xs)}
+.scene-btn:hover{background:var(--ql-bg-deep)}
+.scene-btn.on{background:var(--ql-primary);color:#fff}
+.page-jump{display:flex;flex-wrap:wrap;gap:6px}
+.bcheck{display:flex;flex-direction:column;gap:4px}
+.bcheck-item{display:flex;gap:6px;font-size:var(--ql-font-size-xs);color:var(--ql-text-primary);align-items:flex-start}
+.bcheck-item .bno{color:var(--ql-success);flex:none;font-weight:600}
+.coverage-note{font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);line-height:1.6}
+.pulse{animation:pulse 1s ease-out 2}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,122,204,.7)}100%{box-shadow:0 0 0 12px rgba(0,122,204,0)}}
+</style>
+</head>
+<body>
+<!-- 内联 SVG 图标集（docs/07_design_system/ASSETS.md §1，currentColor 继承） -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-db" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2 4c0-1.1 2.7-2 6-2s6 .9 6 2-2.7 2-6 2-6-.9-6-2Z M2 4v8c0 1.1 2.7 2 6 2s6-.9 6-2V4 M2 8c0 1.1 2.7 2 6 2s6-.9 6-2"/></symbol>
+  <symbol id="i-table" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M2.5 3.5h11v9h-11z M2.5 6.5h11 M2.5 9.5h11 M6 3.5v9"/></symbol>
+  <symbol id="i-view" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8 12.1 12.2 8 12.2 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-key" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M10.5 3a3 3 0 0 0-2.8 4.1L3 11.8V14h2.2l.8-.8v-1.2h1.2l.8-.8h1.2l.5-.5A3 3 0 1 0 10.5 3Z"/><circle cx="11.2" cy="6.2" r=".7" fill="currentColor"/></symbol>
+  <symbol id="i-conn" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M5.5 2.5v3M10.5 2.5v3 M3.5 5.5h9v2a4.5 4.5 0 0 1-9 0v-2Z M8 12v2.5"/></symbol>
+  <symbol id="i-run" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M4.5 3l8 5-8 5V3Z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M9 1.5 3.5 9H7l-.8 5.5L12.5 7H9V1.5Z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 7.5V5.5a4 4 0 0 1 8 0v2 M2.5 7.5h11v6h-11z"/></symbol>
+  <symbol id="i-fmt" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M3 3l4 5-4 5 M13 3 9 8l4 5"/></symbol>
+  <symbol id="i-snip" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M5 2.5h6V14H5z M6.8 7h2.4M6.8 9.5h2.4M6.8 5h2.4"/></symbol>
+  <symbol id="i-hist" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M8 3.5a4.5 4.5 0 1 1-4.4 5.5 M8 5.5V8l2 1.5 M2.5 6.5 3.6 9l1.4-2.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M10.3 10.3 14 14"/></symbol>
+  <symbol id="i-design" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M2.5 2.5h11v3h-11z M2.5 8h4.3v5.5H2.5z M9.2 8h4.3v5.5H9.2z"/></symbol>
+  <symbol id="i-save" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M2.5 2.5h9L13.5 5v8.5h-11z M5 2.5V6h5V2.5 M5 13.5v-4h6v4"/></symbol>
+  <symbol id="i-export" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M8 2v8 M5 7l3 3 3-3 M2.5 13.5h11"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9 M13.5 2.5V6H10"/></symbol>
+  <symbol id="i-rename" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M11 2.5 13.5 5 5.5 13H3v-2.5l8-8Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M2.5 4h11 M5 4V2.5h6V4 M4 4l.7 9.5h6.6L12 4 M6.7 6.5v5M9.3 6.5v5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M11 2.5 13.5 5 5.5 13H3v-2.5l8-8Z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M8 2 14.5 13.5h-13L8 2Z M8 6.5v3.5 M8 11.8v.2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 8.5l3.2 3L13 4.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M8 7.5v3.5M8 5.2v.2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.3" d="M4 1.5h5.5L12.5 4.5V14.5H4z M9.5 1.5v3h3"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M2.5 6.5h11v7h-11z M2.5 6.5 4.8 2.5h6.4l2.3 4 M6.5 10h3"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path fill="none" stroke="currentColor" stroke-width="1.3" d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6 11 5M5 11l-1.4 1.4"/></symbol>
+  <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M6.2 6.2a1.9 1.9 0 1 1 2.6 1.8c-.6.3-.8.7-.8 1.3 M8 11.6v.2"/></symbol>
+</svg>
+
+<div class="stage">
+  <!-- ==================== 桌面窗口画框（PAGE001） ==================== -->
+  <div class="window-frame">
+    <div class="titlebar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="title">QueryLab — 本地开发库 · shop.users</span>
+    </div>
+    <div class="app" id="app">
+      <!-- 顶栏 -->
+      <header class="topbar">
+        <span class="logo">QueryLab</span>
+        <span class="page-tag">PAGE001 · PRD §6 · page-spec 二</span>
+        <div class="grow"></div>
+        <button class="nav-btn" onclick="openShell('settings')"><svg class="icon"><use href="#i-settings"/></svg>设置</button>
+        <button class="nav-btn" onclick="openShell('help')"><svg class="icon"><use href="#i-help"/></svg>帮助</button>
+        <button class="nav-btn" onclick="openShell('about')"><svg class="icon"><use href="#i-info"/></svg>关于</button>
+        <span class="ver" id="verInfo">v0.1.0 (dev)</span>
+      </header>
+
+      <div class="main">
+        <!-- 侧栏 -->
+        <aside class="sidebar">
+          <!-- PAGE002 连接管理 -->
+          <div class="conn-area" id="connArea">
+            <div class="sidebar-head">
+              <b><svg class="icon"><use href="#i-conn"/></svg> 连接</b>
+              <span class="page-tag">PAGE002</span>
+              <button class="icon-btn" title="新建连接" onclick="openConnForm(null)"><svg class="icon"><use href="#i-plus"/></svg></button>
+            </div>
+            <div class="conn-list" id="connList"></div>
+          </div>
+          <!-- PAGE003 Schema 树 -->
+          <div class="schema-area">
+            <div class="sidebar-head">
+              <b>Schema</b><span class="page-tag">PAGE003</span>
+            </div>
+            <div class="tree-toolbar">
+              <button class="btn sm" onclick="openNewDbDialog()"><svg class="icon"><use href="#i-plus"/></svg>数据库</button>
+            </div>
+            <div class="tree" id="schemaTree"></div>
+          </div>
+        </aside>
+
+        <!-- 工作区 -->
+        <div class="workspace">
+          <div class="view-switcher" id="viewSwitcher">
+            <button class="view-btn v-query active" data-view="query" onclick="setView('query')"><svg class="icon"><use href="#i-fmt"/></svg>SQL 查询</button>
+            <button class="view-btn v-grid" data-view="grid" id="btnViewGrid" style="display:none" onclick="setView('grid')"><svg class="icon"><use href="#i-table"/></svg>数据网格</button>
+            <button class="view-btn v-design" data-view="design" id="btnViewDesign" style="display:none" onclick="setView('design')"><svg class="icon"><use href="#i-design"/></svg>设计表</button>
+            <button class="view-btn v-sync" data-view="sync" onclick="setView('sync')"><svg class="icon"><use href="#i-search"/></svg>结构对比（预览）</button>
+            <button class="view-btn v-backup" data-view="backup" onclick="setView('backup')"><svg class="icon"><use href="#i-save"/></svg>备份还原</button>
+            <span class="page-tag" id="viewPageTag">PAGE004+005 · PRD §6</span>
+          </div>
+          <div class="creating-indicator" id="creatingIndicator" style="display:none">
+            <svg class="icon"><use href="#i-plus"/></svg>新建表: <b id="creatingDb"></b>
+            <span class="page-tag">PAGE001 · F009</span>
+          </div>
+
+          <!-- ============ PAGE004 SQL 查询视图 + PAGE005 结果面板 ============ -->
+          <div class="view on" id="view-query">
+            <div class="editor-toolbar">
+              <button class="btn success" id="btnRun" onclick="runSql()"><svg class="icon"><use href="#i-run"/></svg><span id="runLabel">运行</span></button>
+              <button class="btn" id="btnBatch" onclick="toggleBatch()"><svg class="icon"><use href="#i-bolt"/></svg>批量模式</button>
+              <button class="btn" id="btnTx" style="display:none" onclick="toggleTx()"><svg class="icon"><use href="#i-lock"/></svg>事务</button>
+              <button class="btn" onclick="formatSql()"><svg class="icon"><use href="#i-fmt"/></svg>格式化</button>
+              <button class="btn" onclick="openSnippets()"><svg class="icon"><use href="#i-snip"/></svg>片段</button>
+              <button class="btn" id="btnHistory" onclick="toggleHistory()"><svg class="icon"><use href="#i-hist"/></svg>历史 (<span id="histCount">0</span>)</button>
+              <button class="btn" onclick="clearSql()"><svg class="icon"><use href="#i-close"/></svg>清空</button>
+              <div class="conn-info-bar" id="connInfoBar"></div>
+              <span class="shortcuts-hint">Ctrl+Enter 执行 · Ctrl+S 格式化 · Ctrl+H 历史 · Ctrl+K 清空 · F1 片段 · Ctrl+F 搜索</span>
+            </div>
+            <div class="refill-notice" id="refillNotice">
+              <svg class="icon"><use href="#i-info"/></svg>
+              <span id="refillText">已自动回填当前表查询并重新执行（F055）</span>
+              <button class="x" onclick="hideRefill()" title="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+            </div>
+            <div class="stmt-preview" id="stmtPreview">
+              <svg class="icon"><use href="#i-snip"/></svg>
+              <span id="stmtPreviewText"></span>
+              <button class="btn sm" onclick="runSql()">仍要执行</button>
+              <span style="margin-left:auto;color:var(--ql-warning)">B2 · 修复：旧项目按 ; 简单分句会拆坏字符串</span>
+            </div>
+            <div class="editor-body">
+              <div class="history-panel" id="historyPanel">
+                <div class="history-header"><span>历史记录</span>
+                  <button class="icon-btn" onclick="toggleHistory()"><svg class="icon"><use href="#i-close"/></svg></button></div>
+                <div class="history-actions">
+                  <button class="btn" id="histModeBtn" onclick="toggleHistoryMode()">开启本地保存</button>
+                  <button class="btn" onclick="clearHistory()">清空历史</button>
+                </div>
+                <div class="history-notice" id="histNotice" style="display:none"></div>
+                <div class="history-search-wrap">
+                  <input class="history-search-input" id="histSearch" placeholder="搜索历史..." oninput="renderHistory()">
+                </div>
+                <div class="history-list" id="histList"></div>
+              </div>
+              <div class="editor-main">
+                <div class="editor-wrap">
+                  <div class="gutter" id="gutter"></div>
+                  <div class="code-area">
+                    <pre class="hl" id="hlLayer"><code id="hlCode"></code></pre>
+                    <textarea class="sql-input" id="sqlInput" spellcheck="false" placeholder="-- 输入 SQL 语句..."
+                      oninput="onSqlInput()" onscroll="syncScroll()" onkeydown="editorKeydown(event)" onkeyup="onSqlKeyup(event)" onblur="hideAc()"></textarea>
+                    <div class="ac-pop" id="acPop"></div>
+                  </div>
+                </div>
+                <!-- PAGE005 结果面板 -->
+                <div class="results-panel">
+                  <div class="results-head">
+                    <span class="page-tag">PAGE005 · F023-F027/F056</span>
+                    <span id="resultTabs" style="display:flex;gap:6px"></span>
+                    <span id="exportBtns" style="display:flex;gap:6px"></span>
+                    <div class="results-info" id="resultsInfo"></div>
+                  </div>
+                  <div class="update-msg" id="updateMsg"></div>
+                  <div class="results-body" id="resultsBody"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ PAGE006 数据网格 ============ -->
+          <div class="view" id="view-grid">
+            <div class="editor-toolbar">
+              <span class="page-tag">PAGE006 · F028-F037</span>
+              <button class="btn" onclick="gridRefresh()"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+              <button class="btn" onclick="gridAddRow()"><svg class="icon"><use href="#i-plus"/></svg>新增</button>
+              <button class="btn" id="btnGridDel" onclick="gridDelete()"><svg class="icon"><use href="#i-trash"/></svg>删除 (<span id="selCount">0</span>)</button>
+              <span class="vsep"></span>
+              <button class="btn" onclick="gridExport('csv')"><svg class="icon"><use href="#i-export"/></svg>CSV</button>
+              <button class="btn" onclick="gridExport('json')"><svg class="icon"><use href="#i-export"/></svg>JSON</button>
+              <button class="btn" onclick="gridExport('sql')"><svg class="icon"><use href="#i-export"/></svg>SQL</button>
+              <div class="grid-filter">
+                <input class="text-input" id="gridFilterText" placeholder="筛选..." onkeydown="if(event.key==='Enter')gridApplyFilter()">
+                <select id="gridFilterCol"></select>
+                <button class="btn sm" onclick="gridApplyFilter()">筛选</button>
+                <button class="btn sm" id="btnGridClear" style="display:none" onclick="gridClearFilter()">清除</button>
+              </div>
+            </div>
+            <div class="msg-banner" id="gridMsg" style="display:none"></div>
+            <div class="readonly-banner" id="gridReadonly" style="display:none">
+              <svg class="icon"><use href="#i-warn"/></svg>
+              <span>当前表未检测到单列主键，网格视图仅支持浏览、筛选、导出和插入；更新与删除已禁用。</span>
+            </div>
+            <div class="grid-body" id="gridBody"></div>
+            <div class="pagination" id="gridPagination"></div>
+          </div>
+
+          <!-- ============ PAGE007 表设计器 ============ -->
+          <div class="view" id="view-design">
+            <div class="designer-head">
+              <span class="page-tag">PAGE007 · F038-F042</span>
+              <h2 id="designerTitle"><svg class="icon"><use href="#i-design"/></svg><span id="designerTitleText">表设计</span></h2>
+              <input class="table-name-input" id="newTableName" placeholder="表名" style="display:none">
+              <span class="unsaved" id="unsavedIndicator">有未保存的更改</span>
+              <div style="flex:1"></div>
+              <button class="btn" onclick="closeDesigner()"><svg class="icon"><use href="#i-close"/></svg>关闭</button>
+              <button class="btn primary" id="btnDesignSave" onclick="designerSave()"><svg class="icon"><use href="#i-save"/></svg>保存</button>
+            </div>
+            <div class="error-banner" id="designerError"></div>
+            <div class="designer-body">
+              <div class="section-title"><svg class="icon"><use href="#i-table"/></svg>列定义</div>
+              <button class="btn sm" onclick="addColumn()" style="margin-bottom:8px"><svg class="icon"><use href="#i-plus"/></svg>添加列</button>
+              <table class="cols-table"><thead><tr>
+                <th>主键</th><th>自增</th><th>列名</th><th>类型</th><th>长度</th><th>NULL</th><th>默认值</th><th>注释</th><th></th>
+              </tr></thead><tbody id="colsBody"></tbody></table>
+              <div class="section-title"><svg class="icon"><use href="#i-key"/></svg>索引</div>
+              <div class="index-readonly" id="indexReadonly"></div>
+              <div class="section-title" style="margin-top:16px"><svg class="icon"><use href="#i-settings"/></svg>表选项</div>
+              <div class="options-grid">
+                <label>存储引擎<select id="optEngine"><option>InnoDB</option><option>MyISAM</option><option>MEMORY</option><option>ARCHIVE</option><option>CSV</option></select></label>
+                <label>字符集<select id="optCharset" onchange="linkCollation()"><option>utf8mb4</option><option>utf8</option><option>latin1</option><option>gbk</option><option>big5</option></select></label>
+                <label>排序规则<select id="optCollation"></select></label>
+                <label>表注释<input class="text-input" id="optComment" oninput="markDirty()"></label>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ PAGE008 结构对比（预览） ============ -->
+          <div class="view" id="view-sync">
+            <div class="sync-view">
+              <div class="designer-head" style="border:none;padding:0 0 8px">
+                <h2><svg class="icon"><use href="#i-search"/></svg>结构对比</h2>
+                <span class="page-tag">PAGE008 · F043-F047</span>
+                <div style="flex:1"></div>
+                <button class="btn" onclick="setView('query')"><svg class="icon"><use href="#i-close"/></svg></button>
+              </div>
+              <div class="mode-note">仅结构（当前支持）：本功能只提供结构差异分析与结构变更 SQL 执行，不做真实数据同步。</div>
+              <div class="sync-config">
+                <label>源数据库<select id="syncSource" onchange="syncGuard()"></select></label>
+                <span style="padding-bottom:8px">→</span>
+                <label>目标数据库<select id="syncTarget" onchange="syncGuard()"></select></label>
+                <label>同步模式<select disabled><option>仅结构（当前支持）</option></select></label>
+                <button class="btn primary" id="btnCompare" onclick="syncCompare()"><svg class="icon"><use href="#i-search"/></svg>开始比较</button>
+              </div>
+              <div class="error-banner" id="syncError"></div>
+              <div id="syncResultArea" style="display:none">
+                <div class="summary-bar" id="syncSummary"></div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                  <input type="checkbox" id="syncSelectAll" onchange="syncToggleAll(this.checked)">
+                  <span style="font-size:var(--ql-font-size-sm)">全选差异表</span>
+                </div>
+                <div class="diff-list" id="diffList"></div>
+                <div id="syncDetail" style="display:none"></div>
+                <div class="sync-actions">
+                  <button class="btn" onclick="syncCopy()"><svg class="icon"><use href="#i-snip"/></svg>复制 SQL</button>
+                  <button class="btn" onclick="syncExport()"><svg class="icon"><use href="#i-export"/></svg>导出 SQL</button>
+                  <button class="btn danger" id="btnSyncRun" onclick="syncExecute()"><svg class="icon"><use href="#i-run"/></svg>执行同步</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ PAGE009 备份还原 ============ -->
+          <div class="view" id="view-backup">
+            <div class="backup-view">
+              <div class="designer-head" style="border:none;padding:0 0 8px">
+                <h2><svg class="icon"><use href="#i-save"/></svg>备份还原</h2>
+                <span class="page-tag">PAGE009 · F048-F049</span>
+                <div style="flex:1"></div>
+                <button class="btn" onclick="setView('query')"><svg class="icon"><use href="#i-close"/></svg></button>
+              </div>
+              <div class="mode-tabs">
+                <button class="mode-tab active" id="tabExport" onclick="switchBackupTab('export')"><svg class="icon"><use href="#i-export"/></svg>导出备份</button>
+                <button class="mode-tab" id="tabImport" onclick="switchBackupTab('import')"><svg class="icon"><use href="#i-file"/></svg>导入还原</button>
+              </div>
+              <!-- 导出 -->
+              <div class="backup-card" id="backupExportPane">
+                <div class="backup-field"><span>选择数据库</span>
+                  <select id="bkDb" onchange="loadBackupTables()"></select></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                  <span style="font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)">选择表</span>
+                  <button class="btn sm ghost" onclick="toggleAllBkTables(this)">取消全选</button>
+                </div>
+                <div class="tables-grid" id="bkTables"></div>
+                <div class="radio-row">
+                  <input type="radio" checked disabled><span>结构 + 数据（SQL）</span>
+                </div>
+                <div class="fmt-static">导出格式：仅支持 SQL (.sql)</div>
+                <button class="btn primary" id="btnBkExport" onclick="backupExport()"><svg class="icon"><use href="#i-export"/></svg>开始导出</button>
+                <div class="progress-track" id="bkExpTrack" style="display:none"><div class="progress-fill" id="bkExpFill"></div></div>
+                <div style="font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)" id="bkExpStatus"></div>
+                <div class="result-block" id="bkExpResult"></div>
+              </div>
+              <!-- 导入 -->
+              <div class="backup-card" id="backupImportPane" style="display:none">
+                <div class="mode-note">当前导入仅支持 SQL 备份文件。</div>
+                <div class="backup-field"><span>目标数据库</span><select id="bkImportDb"></select></div>
+                <div class="backup-field"><span>备份文件</span>
+                  <div class="file-row">
+                    <input class="text-input" id="bkImportFile" readonly placeholder="未选择文件">
+                    <button class="btn" onclick="document.getElementById('bkFileInput').click()"><svg class="icon"><use href="#i-file"/></svg>浏览 SQL</button>
+                    <input type="file" id="bkFileInput" accept=".sql" style="display:none" onchange="onBkFileChosen(this)">
+                  </div>
+                </div>
+                <label style="display:flex;gap:8px;align-items:center;font-size:var(--ql-font-size-sm);margin-bottom:12px">
+                  <input type="checkbox" id="bkDropExisting" style="accent-color:var(--ql-danger-strong)">
+                  <span style="color:var(--ql-danger)">导入前删除现有表（谨慎使用）</span>
+                </label>
+                <button class="btn primary" id="btnBkImport" onclick="backupImport()"><svg class="icon"><use href="#i-file"/></svg>开始导入</button>
+                <div class="progress-track" id="bkImpTrack" style="display:none"><div class="progress-fill" id="bkImpFill"></div></div>
+                <div style="font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)" id="bkImpStatus"></div>
+                <div class="result-block" id="bkImpResult"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态栏 -->
+      <footer class="statusbar">
+        <span id="statusMsg">Ready</span>
+        <span>平台: macos</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ==================== 评审面板 ==================== -->
+  <aside class="review-panel">
+    <div class="review-head">
+      <h2>V1 评审面板（P6）</h2>
+      <p>输入：PRD v2.0 + P4 B 类优化 + P5 DS</p>
+    </div>
+    <div class="review-body">
+      <div class="review-sec">
+        <h4>五态场景库</h4>
+        <div class="scene-btns" id="sceneBtns">
+          <button class="scene-btn on" data-scene="success" onclick="setScene('success')">成功</button>
+          <button class="scene-btn" data-scene="loading" onclick="setScene('loading')">加载中</button>
+          <button class="scene-btn" data-scene="errorConn" onclick="setScene('errorConn')">失败·连接失败</button>
+          <button class="scene-btn" data-scene="errorSql" onclick="setScene('errorSql')">失败·SQL 报错</button>
+          <button class="scene-btn" data-scene="empty" onclick="setScene('empty')">空数据</button>
+          <button class="scene-btn" data-scene="gate" onclick="setScene('gate')">只读门禁(权限)</button>
+        </div>
+        <p class="coverage-note" id="sceneNote" style="margin-top:6px">对应 page-spec 三、六项特检矩阵；加载态锁定，切场景库继续。</p>
+      </div>
+      <div class="review-sec">
+        <h4>页面导航</h4>
+        <div class="page-jump" id="pageJump"></div>
+      </div>
+      <div class="review-sec">
+        <h4>B 类修复核验（P4 §5.1）</h4>
+        <div class="bcheck" id="bcheck"></div>
+      </div>
+      <div class="review-sec">
+        <h4>功能覆盖</h4>
+        <p class="coverage-note"><b style="color:var(--ql-success)">57/57（100%）</b>，C 类留档 14 项（SSL/SSH、多 Tab、取消查询、排序、收藏、CSV 导入、License、meta_get_schema_tree、src-ui 清理、连接池、符号搜索、扩展库、外键、统一返回结构）不呈现。F020 列名补全以受限说明覆盖；PAGE012 已接线（B3）。</p>
+      </div>
+      <div class="review-sec">
+        <h4>演示入口</h4>
+        <button class="btn sm" onclick="demoBatch()">唤起批量进度面板（PAGE012）</button>
+        <button class="btn sm" onclick="demoSensitive()">敏感 SQL 历史拦截（F019）</button>
+        <button class="btn sm" onclick="demoToasts()">Toast 三级（F051）</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ==================== 全局层 ==================== -->
+<!-- Toast（PAGE010） -->
+<div class="toast-stack" id="toastStack"></div>
+<!-- 全局确认（PAGE010 F052） -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-dialog" role="dialog" aria-modal="true">
+    <div class="confirm-header"><h3 id="confirmTitle"></h3></div>
+    <div class="confirm-body"><p id="confirmBody"></p></div>
+    <div class="confirm-actions">
+      <button class="btn-cancel" id="confirmCancel"></button>
+      <button class="btn-confirm danger" id="confirmOk"></button>
+    </div>
+  </div>
+</div>
+<!-- 右键菜单 -->
+<div class="ctx-menu" id="ctxMenu"></div>
+<!-- 连接表单（PAGE002） -->
+<div class="modal-overlay" id="connFormOverlay" onclick="if(event.target===this)closeConnForm()">
+  <div class="modal">
+    <div class="modal-head"><h3><svg class="icon"><use href="#i-conn"/></svg><span id="connFormTitle">新建连接</span></h3>
+      <button class="icon-btn" onclick="closeConnForm()"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="modal-body">
+      <div class="form-field"><span>连接名称</span><input id="cfName" placeholder="本地开发库"></div>
+      <div class="form-field"><span>主机</span><input id="cfHost" placeholder="localhost"></div>
+      <div class="form-field"><span>端口</span><input id="cfPort" value="3306"></div>
+      <div class="form-field"><span>用户</span><input id="cfUser" placeholder="root"></div>
+      <div class="form-field"><span>密码</span><input id="cfPass" type="password" placeholder="留空保持原密码不变">
+        <span class="form-help"><svg class="icon"><use href="#i-lock"/></svg>密码仅存系统钥匙串，不落盘；编辑时留空 = 保持原密码（B1 · 修复旧项目清空钥匙串缺陷）</span></div>
+      <div class="test-block" id="connTestBlock"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeConnForm()">取消</button>
+      <button class="btn" id="cfTestBtn" onclick="testConnForm()"><svg class="icon"><use href="#i-bolt"/></svg>测试</button>
+      <button class="btn primary" id="cfSaveBtn" onclick="saveConnForm()"><svg class="icon"><use href="#i-check"/></svg>保存</button>
+    </div>
+  </div>
+</div>
+<!-- 新建数据库（PAGE003） -->
+<div class="modal-overlay" id="newDbOverlay" onclick="if(event.target===this)closeModal('newDbOverlay')">
+  <div class="modal narrow">
+    <div class="modal-head"><h3><svg class="icon"><use href="#i-db"/></svg>新建数据库</h3>
+      <button class="icon-btn" onclick="closeModal('newDbOverlay')"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="modal-body">
+      <div class="form-field"><span>数据库名称</span><input id="ndbName" placeholder="my_db"></div>
+      <div class="form-field"><span>字符集</span>
+        <select id="ndbCharset" onchange="linkNewDbCollation()">
+          <option>utf8mb4</option><option>utf8</option><option>latin1</option><option>gbk</option><option>big5</option><option>utf8mb3</option>
+        </select></div>
+      <div class="form-field"><span>排序规则（联动）</span><select id="ndbCollation"></select></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('newDbOverlay')">取消</button>
+      <button class="btn primary" onclick="createDb()"><svg class="icon"><use href="#i-check"/></svg>创建</button>
+    </div>
+  </div>
+</div>
+<!-- 重命名表（PAGE003） -->
+<div class="modal-overlay" id="renameOverlay" onclick="if(event.target===this)closeModal('renameOverlay')">
+  <div class="modal narrow">
+    <div class="modal-head"><h3><svg class="icon"><use href="#i-rename"/></svg>重命名表</h3>
+      <button class="icon-btn" onclick="closeModal('renameOverlay')"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="modal-body">
+      <div class="form-field"><span>原表名</span><input id="rnOld" readonly></div>
+      <div class="form-field"><span>新表名</span><input id="rnNew"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('renameOverlay')">取消</button>
+      <button class="btn primary" onclick="doRename()"><svg class="icon"><use href="#i-check"/></svg>确认</button>
+    </div>
+  </div>
+</div>
+<!-- 片段弹窗（PAGE004 F018） -->
+<div class="modal-overlay" id="snippetOverlay" onclick="if(event.target===this)closeModal('snippetOverlay')">
+  <div class="modal wide">
+    <div class="modal-head"><h3><svg class="icon"><use href="#i-snip"/></svg>SQL 代码片段（24）</h3>
+      <button class="icon-btn" onclick="closeModal('snippetOverlay')"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><div class="snippet-grid" id="snippetGrid"></div></div>
+  </div>
+</div>
+<!-- ALTER 预览（PAGE007 F039 可视化增强，同 v0 口径） -->
+<div class="modal-overlay" id="alterOverlay" onclick="if(event.target===this)closeModal('alterOverlay')">
+  <div class="modal">
+    <div class="modal-head"><h3><svg class="icon"><use href="#i-design"/></svg>结构变更预览（diff → ALTER）</h3>
+      <button class="icon-btn" onclick="closeModal('alterOverlay')"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><div class="sql-preview" id="alterPreview"></div></div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('alterOverlay')">取消</button>
+      <button class="btn primary" onclick="execAlter()"><svg class="icon"><use href="#i-run"/></svg>确认执行</button>
+    </div>
+  </div>
+</div>
+<!-- 网格删除确认（PAGE006 F033） -->
+<div class="modal-overlay" id="gridDelOverlay" onclick="if(event.target===this)closeModal('gridDelOverlay')">
+  <div class="modal narrow">
+    <div class="modal-head"><h3><svg class="icon" style="color:var(--ql-danger)"><use href="#i-trash"/></svg>删除选中行</h3>
+      <button class="icon-btn" onclick="closeModal('gridDelOverlay')"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="modal-body"><p id="gridDelText" style="line-height:1.6"></p></div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('gridDelOverlay')">取消</button>
+      <button class="btn danger" onclick="execGridDelete()"><svg class="icon"><use href="#i-trash"/></svg>删除</button>
+    </div>
+  </div>
+</div>
+<!-- 批量进度面板（PAGE012，B3 接线） -->
+<div class="batch-overlay" id="batchOverlay" onclick="if(event.target===this)closeBatch()">
+  <div class="batch-panel">
+    <div class="batch-head"><span style="display:flex;gap:8px;align-items:center"><svg class="icon"><use href="#i-bolt"/></svg>批量执行进度</span>
+      <span class="page-tag">PAGE012 · B3 接线</span>
+      <button class="icon-btn" onclick="closeBatch()"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="batch-body">
+      <div class="progress-track"><div class="progress-fill" id="batchFill"></div></div>
+      <div style="font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary)" id="batchCount"></div>
+      <div class="batch-stats">
+        <span>总计 <b id="batchTotal">0</b></span>
+        <span style="color:var(--ql-success)">成功 <b id="batchOk">0</b></span>
+        <span style="color:var(--ql-danger)">失败 <b id="batchFail">0</b></span>
+        <span class="errbadge" id="batchErrBadge" style="display:none">有错误</span>
+      </div>
+      <div class="stmt-list" id="batchList"></div>
+      <div class="batch-error" id="batchError"></div>
+    </div>
+  </div>
+</div>
+<!-- 侧滑面板（PAGE011） -->
+<div class="shell-overlay" id="shellOverlay" onclick="closeShell()"></div>
+<div class="shell-panel" id="shellPanel">
+  <div class="shell-head">
+    <div class="eyebrow">QUERYLAB</div>
+    <h2><span id="shellTitle">设置</span>
+      <button class="icon-btn" onclick="closeShell()"><svg class="icon"><use href="#i-close"/></svg></button></h2>
+  </div>
+  <div class="shell-body" id="shellBody"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   QueryLab V1 原型脚本（P6）
+   57 项功能（F001-F057）+ B1-B13 修复呈现；单文件零外链。
+   ===================================================================== */
+
+/* ---------- 模拟数据（可溯源自 page-spec/逆向报告示例口径） ---------- */
+var SYSTEM_DBS = ['information_schema','mysql','performance_schema','sys'];
+var COLLATIONS = {
+  utf8mb4:['utf8mb4_unicode_ci','utf8mb4_general_ci','utf8mb4_0900_ai_ci','utf8mb4_bin','utf8mb4_unicode_520_ci','utf8mb4_icelandic_ci','utf8mb4_latvian_ci'],
+  utf8:['utf8_unicode_ci','utf8_general_ci','utf8_bin'],
+  utf8mb3:['utf8mb3_general_ci','utf8mb3_unicode_ci'],
+  latin1:['latin1_swedish_ci','latin1_general_ci','latin1_bin'],
+  gbk:['gbk_chinese_ci','gbk_bin'],
+  big5:['big5_chinese_ci','big5_bin']
+};
+var connections = [
+  {id:'c1', name:'本地开发库', driver:'mysql', host:'localhost', port:3306, user:'root'},
+  {id:'c2', name:'测试环境', driver:'mysql', host:'192.168.1.100', port:3306, user:'qa'}
+];
+var dbAll = ['information_schema','mysql','performance_schema','sys','shop','analytics'];
+var schemas = {
+  shop:[
+    {name:'users', type:'BASE TABLE', comment:'用户表'},
+    {name:'orders', type:'BASE TABLE', comment:'订单表'},
+    {name:'products', type:'BASE TABLE', comment:'商品表'},
+    {name:'log_no_pk', type:'BASE TABLE', comment:'无主键日志（只读演示）'},
+    {name:'archive_empty', type:'BASE TABLE', comment:'归档空表（空态演示）'},
+    {name:'v_user_summary', type:'VIEW', comment:'用户汇总视图'}
+  ],
+  analytics:[
+    {name:'users', type:'BASE TABLE', comment:''},
+    {name:'orders', type:'BASE TABLE', comment:''},
+    {name:'archive_empty', type:'BASE TABLE', comment:''}
+  ]
+};
+var usersCols = [
+  {name:'id', type:'INT', pk:true, ai:true},
+  {name:'user_name', type:'VARCHAR(50)', pk:false},
+  {name:'email', type:'VARCHAR(100)', pk:false},
+  {name:'status', type:'TINYINT(1)', pk:false},
+  {name:'created_at', type:'DATETIME', pk:false}
+];
+function genUsersRows(n){
+  var rows=[]; var t0=new Date(2026,0,1).getTime();
+  for(var i=1;i<=n;i++){
+    rows.push({id:i, user_name:'user_'+i, email:'user'+i+'@example.com',
+      status:i%3===0?0:1, created_at:new Date(t0+i*3600e3).toISOString().slice(0,19).replace('T',' ')});
+  }
+  return rows;
+}
+var tableData = {
+  'shop.users':{cols:usersCols, rows:genUsersRows(120), pk:'id'},
+  'shop.orders':{cols:[{name:'order_id',type:'BIGINT',pk:true,ai:true},{name:'user_id',type:'INT',pk:false},{name:'amount',type:'DECIMAL(10,2)',pk:false}],rows:null,pk:'order_id'},
+  'shop.products':{cols:[{name:'id',type:'INT',pk:true,ai:true},{name:'title',type:'VARCHAR(120)',pk:false},{name:'price',type:'DECIMAL(8,2)',pk:false}],rows:null,pk:'id'},
+  'shop.log_no_pk':{cols:[{name:'seq',type:'INT',pk:false},{name:'level',type:'VARCHAR(10)',pk:false},{name:'message',type:'TEXT',pk:false}],rows:null,pk:null},
+  'shop.archive_empty':{cols:[{name:'id',type:'INT',pk:true,ai:true},{name:'note',type:'VARCHAR(200)',pk:false}],rows:[],pk:'id'},
+  'shop.v_user_summary':{cols:[{name:'user_name',type:'VARCHAR(50)',pk:false},{name:'order_cnt',type:'BIGINT',pk:false}],rows:null,pk:null},
+  'analytics.users':{cols:[{name:'id',type:'INT',pk:true,ai:true},{name:'user_name',type:'VARCHAR(50)',pk:false},{name:'status',type:'SMALLINT',pk:false}],rows:null,pk:'id'},
+  'analytics.orders':{cols:[{name:'order_id',type:'BIGINT',pk:true,ai:true},{name:'user_id',type:'INT',pk:false}],rows:null,pk:'order_id'},
+  'analytics.archive_empty':{cols:[{name:'id',type:'INT',pk:true,ai:true}],rows:[],pk:'id'}
+};
+(function seedRows(){
+  var keys=['shop.orders','shop.products','shop.log_no_pk','shop.v_user_summary','analytics.users','analytics.orders'];
+  tableData['shop.orders'].rows=[
+    {order_id:9001,user_id:1,amount:'199.00'},{order_id:9002,user_id:2,amount:'88.50'},
+    {order_id:9003,user_id:3,amount:'129.90'},{order_id:9004,user_id:1,amount:'59.00'}];
+  tableData['shop.products'].rows=[
+    {id:1,title:'机械键盘',price:'329.00'},{id:2,title:'无线鼠标',price:'149.00'},{id:3,title:'4K 显示器',price:'1899.00'}];
+  tableData['shop.log_no_pk'].rows=[
+    {seq:1,level:'INFO',message:'service started'},{seq:2,level:'WARN',message:'slow query 1.2s'},
+    {seq:3,level:'ERROR',message:'db reconnect'},{seq:4,level:'INFO',message:'job done'}];
+  tableData['shop.v_user_summary'].rows=[{user_name:'user_1',order_cnt:2},{user_name:'user_2',order_cnt:1}];
+  tableData['analytics.users'].rows=[{id:1,user_name:'user_1',status:1},{id:2,user_name:'user_2',status:1}];
+  tableData['analytics.orders'].rows=[{order_id:7001,user_id:1}];
+})();
+var SNIPPETS = [
+  ['SELECT 基础','SELECT * FROM table_name;'],
+  ['SELECT 指定列','SELECT col1, col2 FROM table_name;'],
+  ['INSERT','INSERT INTO table_name (col1, col2) VALUES (\'value1\', \'value2\');'],
+  ['INSERT 多行','INSERT INTO table_name (col1, col2) VALUES\n  (\'v1\', \'v2\'),\n  (\'v3\', \'v4\');'],
+  ['UPDATE','UPDATE table_name SET col1 = \'new_value\' WHERE id = 1;'],
+  ['UPDATE 多列','UPDATE table_name SET col1 = \'v1\', col2 = \'v2\' WHERE id = 1;'],
+  ['DELETE','DELETE FROM table_name WHERE id = 1;'],
+  ['DELETE 多条件','DELETE FROM table_name WHERE created_at < \'2025-01-01\' AND status = 0;'],
+  ['CREATE TABLE','CREATE TABLE table_name (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(100) NOT NULL\n);'],
+  ['CREATE INDEX','CREATE INDEX idx_name ON table_name (column_name);'],
+  ['ALTER TABLE 加列','ALTER TABLE table_name ADD COLUMN new_col VARCHAR(50) DEFAULT NULL;'],
+  ['DROP TABLE','DROP TABLE IF EXISTS table_name;'],
+  ['TRUNCATE','TRUNCATE TABLE table_name;'],
+  ['JOIN','SELECT a.*, b.col FROM a JOIN b ON a.id = b.a_id;'],
+  ['LEFT JOIN','SELECT a.*, b.col FROM a LEFT JOIN b ON a.id = b.a_id;'],
+  ['RIGHT JOIN','SELECT a.*, b.col FROM a RIGHT JOIN b ON a.id = b.a_id;'],
+  ['GROUP BY','SELECT col, COUNT(*) AS cnt FROM table_name GROUP BY col;'],
+  ['子查询','SELECT * FROM a WHERE id IN (SELECT a_id FROM b WHERE status = 1);'],
+  ['EXISTS','SELECT * FROM a WHERE EXISTS (SELECT 1 FROM b WHERE b.a_id = a.id);'],
+  ['UNION','SELECT col FROM a UNION SELECT col FROM b;'],
+  ['事务','START TRANSACTION;\nUPDATE acc SET bal = bal - 100 WHERE id = 1;\nUPDATE acc SET bal = bal + 100 WHERE id = 2;\nCOMMIT;'],
+  ['批量插入','INSERT INTO t (a, b) SELECT x, y FROM src;'],
+  ['创建视图','CREATE VIEW v_name AS SELECT id, name FROM table_name;'],
+  ['WITH 递归','WITH RECURSIVE seq AS (\n  SELECT 1 AS n UNION ALL SELECT n + 1 FROM seq WHERE n < 10\n)\nSELECT * FROM seq;']
+];
+var SQL_KEYWORDS = ['SELECT','FROM','WHERE','INSERT','UPDATE','DELETE','CREATE','ALTER','DROP','TRUNCATE','JOIN','LEFT','RIGHT','INNER','GROUP','ORDER','BY','LIMIT','OFFSET','AND','OR','NOT','NULL','AS','ON','INTO','VALUES','SET','DISTINCT','HAVING','UNION','EXISTS','BETWEEN','LIKE','IN','IS','CASE','WHEN','THEN','END'];
+var SENSITIVE_RE = /password|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential/i;
+
+/* ---------- 应用状态 ---------- */
+var state = {
+  view:'query', conn:null, expanded:{}, currentDatabase:'', currentTable:'', currentTableName:'',
+  creating:false, targetDatabase:'',
+  batchMode:false, useTx:false, historyLocal:false,
+  history:[], histNotice:'',
+  scene:'success', loading:false,
+  result:null, resultError:null, resultMsg:null, activeSet:0, lastQueryId:'', lastElapsed:0,
+  editableTable:'', grid:{db:'',table:'',page:1,pageSize:50,filterText:'',filterCol:'all',selected:{},lastMsg:null},
+  design:{mode:'new', columns:[], original:null, dirty:false, indexes:[]},
+  sync:{diffs:null, selected:{}, detail:null},
+  batch:null, refillShown:false, foreignSql:false
+};
+
+/* ---------- 工具 ---------- */
+function $(id){return document.getElementById(id);}
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function icon(name,cls){return '<svg class="icon '+(cls||'')+'"><use href="#i-'+name+'"/></svg>';}
+function nowTime(){return new Date().toLocaleTimeString('zh-CN',{hour12:false});}
+function ts(){var d=new Date();function p(n){return (n<10?'0':'')+n;}return ''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());}
+function setStatus(msg){$('statusMsg').textContent=msg;}
+function toast(msg,level){
+  var t=document.createElement('div');t.className='toast '+(level||'info');
+  t.innerHTML='<span>'+esc(msg)+'</span><button class="tclose" aria-label="关闭">&times;</button>';
+  t.querySelector('.tclose').onclick=function(){t.remove();};
+  $('toastStack').appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.remove();}, level==='error'?4500:3200);
+}
+function notifySuccess(m){toast(m,'success');}
+function notifyError(m){toast(m,'error');}
+function notifyInfo(m){toast(m,'info');}
+var confirmResolver=null;
+function confirmAction(opt){
+  return new Promise(function(res){
+    confirmResolver=res;
+    $('confirmTitle').textContent=opt.title;
+    $('confirmBody').textContent=opt.message;
+    $('confirmCancel').textContent=opt.cancelLabel||'取消';
+    $('confirmOk').textContent=opt.confirmLabel||'确认';
+    $('confirmOk').className='btn-confirm '+(opt.tone==='info'?'info':'danger');
+    $('confirmOverlay').classList.add('on');
+  });
+}
+function resolveConfirm(v){
+  $('confirmOverlay').classList.remove('on');
+  if(confirmResolver){confirmResolver(v);confirmResolver=null;}
+}
+function closeModal(id){$(id).classList.remove('on');}
+function openModal(id){$(id).classList.add('on');}
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){
+    if($('confirmOverlay').classList.contains('on')){resolveConfirm(false);return;}
+    var open=['connFormOverlay','newDbOverlay','renameOverlay','snippetOverlay','alterOverlay','gridDelOverlay','batchOverlay'];
+    for(var i=0;i<open.length;i++){if($(open[i]).classList.contains('on')){$(open[i]).classList.remove('on');return;}}
+    if($('ctxMenu').classList.contains('on')){$('ctxMenu').classList.remove('on');return;}
+    if($('shellPanel').classList.contains('on')){closeShell();return;}
+    hideAc();
+  }
+  var tag=(e.target&&e.target.tagName)||'';
+  var inEditor=e.target===$('sqlInput');
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&tag!=='INPUT'){e.preventDefault();runSql();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'&&tag!=='INPUT'){e.preventDefault();formatSql();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='h'&&tag!=='INPUT'){e.preventDefault();toggleHistory();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&tag!=='INPUT'){e.preventDefault();clearSql();}
+  if(e.key==='F1'){e.preventDefault();openSnippets();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'&&tag!=='INPUT'){e.preventDefault();notifyInfo('编辑器内搜索：CodeMirror searchKeymap（Ctrl+F，F021）');}
+  if(!inEditor)hideAc();
+});
+$('confirmCancel').onclick=function(){resolveConfirm(false);};
+$('confirmOk').onclick=function(){resolveConfirm(true);};
+$('confirmOverlay').onclick=function(e){if(e.target===this)resolveConfirm(false);};
+
+/* =====================================================================
+   PAGE002 连接管理（F001-F005，B1/B13）
+   ===================================================================== */
+function renderConnList(){
+  var html='';
+  if(!connections.length){
+    html='<div class="empty-hint">暂无连接，点击 + 新建</div>';
+  }
+  connections.forEach(function(c){
+    var active=state.conn&&state.conn.id===c.id;
+    html+='<div class="conn-item'+(active?' active':'')+'" tabindex="0" onclick="selectConn(\''+c.id+'\')" title="'+esc(c.name)+'">'
+      +'<div class="conn-info"><div class="conn-name">'+esc(c.name||c.host)+'</div>'
+      +'<div class="conn-sub">'+esc(c.host+':'+c.port)+'</div></div>'
+      +'<span class="dialect-badge">'+esc((c.driver||'mysql').toUpperCase())+'</span>'
+      +'<div class="conn-ops">'
+      +'<button class="icon-btn" title="编辑" onclick="event.stopPropagation();openConnForm(\''+c.id+'\')">'+icon('edit')+'</button>'
+      +'<button class="icon-btn" title="测试" onclick="event.stopPropagation();testConnList(\''+c.id+'\')">'+icon('bolt')+'</button>'
+      +'<button class="icon-btn danger" title="删除" onclick="event.stopPropagation();deleteConn(\''+c.id+'\')">'+icon('trash')+'</button>'
+      +'</div></div>';
+  });
+  $('connList').innerHTML=html;
+}
+function selectConn(id){
+  var c=connections.find(function(x){return x.id===id;});
+  if(!c)return;
+  var hadSql=getSql().trim().length>0;
+  state.conn=c;
+  state.expanded={};state.currentDatabase='';state.currentTable='';state.currentTableName='';
+  state.creating=false;state.targetDatabase='';
+  state.result=null;state.resultError=null;state.resultMsg=null;
+  state.grid.db='';state.grid.table='';
+  setView('query');
+  setStatus('Connected to '+(c.name||c.host));
+  renderAll();
+  renderConnInfoBar();
+  renderResults();
+  notifySuccess('已连接：'+(c.name||c.host));
+  /* B13/FL-03：切换连接保留编辑器 SQL，但给出警示条 */
+  if(hadSql){
+    showRefill('当前 SQL 来自上一个连接会话，已保留；请确认后再执行（B13 · 旧项目为静默残留）');
+  }
+}
+function openConnForm(id){
+  var c=id?connections.find(function(x){return x.id===id;}):null;
+  $('connFormTitle').textContent=c?'编辑连接':'新建连接';
+  $('cfName').value=c?c.name:'';$('cfHost').value=c?c.host:'';$('cfPort').value=c?c.port:3306;
+  $('cfUser').value=c?c.user:'';
+  /* B1：密码不回传（源码事实），placeholder 说明留空语义 */
+  $('cfPass').value='';
+  $('cfPass').placeholder=c?'留空保持原密码不变':'密码（存系统钥匙串）';
+  $('connTestBlock').className='test-block';$('connTestBlock').innerHTML='';
+  $('connFormOverlay').dataset.editId=c?c.id:'';
+  openModal('connFormOverlay');
+}
+function closeConnForm(){closeModal('connFormOverlay');}
+function syncConnForm(){
+  return {name:$('cfName').value.trim(),host:$('cfHost').value.trim(),
+    port:parseInt($('cfPort').value,10)||3306,user:$('cfUser').value.trim(),pass:$('cfPass').value};
+}
+function testConnForm(){
+  var f=syncConnForm();
+  $('cfTestBtn').disabled=true;$('cfTestBtn').textContent='测试中...';
+  setTimeout(function(){
+    $('cfTestBtn').disabled=false;
+    $('cfTestBtn').innerHTML=icon('bolt')+'测试';
+    var b=$('connTestBlock');
+    if(!f.host){b.className='test-block err';b.textContent='连接失败: 无效的连接参数（主机不能为空）';return;}
+    if(f.host==='192.168.1.100'){
+      b.className='test-block err';
+      b.innerHTML=esc('连接失败: 连接超时（5秒）')+'<br><button class="btn sm" onclick="focusHostInput()">'+icon('edit')+'编辑连接</button>';
+    }else{
+      b.className='test-block ok';
+      b.textContent='连接成功!\n延迟: '+(8+Math.floor(Math.random()*20))+'ms\n版本: 8.0.36\n用户: '+f.user;
+    }
+  },600);
+}
+function focusHostInput(){$('cfHost').focus();}
+function testConnList(id){
+  var c=connections.find(function(x){return x.id===id;});if(!c)return;
+  notifyInfo('测试中...');
+  setTimeout(function(){
+    if(c.host==='192.168.1.100'){notifyError('连接失败: 连接超时（5秒）');}
+    else{notifySuccess('连接成功! 延迟: 12ms · 版本: 8.0.36 · 用户: '+c.user);}
+  },600);
+}
+function saveConnForm(){
+  var f=syncConnForm();
+  if(!f.name||!f.host){notifyError('请填写连接名称与主机');return;}
+  var editId=$('connFormOverlay').dataset.editId;
+  var saveBtn=$('cfSaveBtn');saveBtn.disabled=true;saveBtn.textContent='保存中...';
+  setTimeout(function(){
+    saveBtn.disabled=false;saveBtn.innerHTML=icon('check')+'保存';
+    if(editId){
+      var c=connections.find(function(x){return x.id===editId;});
+      c.name=f.name;c.host=f.host;c.port=f.port;c.user=f.user;
+      /* B1：pass 为空 = 保持原密码（不再清空钥匙串） */
+      notifySuccess('连接已更新（密码保持不变 · B1）');
+      if(state.conn&&state.conn.id===editId){renderConnInfoBar();}
+    }else{
+      connections.push({id:'c'+Date.now(),name:f.name,driver:'mysql',host:f.host,port:f.port,user:f.user});
+      notifySuccess('连接已创建（密码已存入系统钥匙串 · F005）');
+    }
+    renderConnList();closeConnForm();
+  },500);
+}
+function deleteConn(id){
+  var c=connections.find(function(x){return x.id===id;});if(!c)return;
+  confirmAction({title:'删除连接',message:'确定要删除连接 "'+(c.name||c.host)+'" 吗？',confirmLabel:'删除',tone:'danger'})
+    .then(function(ok){
+      if(!ok)return;
+      connections=connections.filter(function(x){return x.id!==id;});
+      notifySuccess('连接已删除');
+      if(state.conn&&state.conn.id===id){
+        state.conn=null;state.expanded={};state.currentDatabase='';state.currentTable='';
+        state.currentTableName='';state.result=null;state.resultError=null;state.resultMsg=null;
+        state.grid.db='';state.grid.table='';
+        setSql('');/* B13/FL-03：删除当前连接整体重置（含编辑器） */
+        setStatus('No connection');
+        renderResults();renderConnInfoBar();
+      }
+      renderAll();
+    });
+}
+function renderConnInfoBar(){
+  var c=state.conn;
+  if(!c){$('connInfoBar').innerHTML=icon('warn')+' 未连接';return;}
+  /* B5：方言徽标按 driver 字段（修复字段错配） */
+  $('connInfoBar').innerHTML=icon('conn')+' '+esc(c.name||c.host)
+    +' <span class="dialect-badge" title="B5 · 修复：按 driver 字段映射方言（旧项目误读 dialect 恒退化 Standard SQL）">'+esc((c.driver||'mysql').toUpperCase())+' 方言</span>';
+}
+
+/* =====================================================================
+   PAGE003 Schema 树（F006-F013）
+   ===================================================================== */
+function renderSchemaTree(){
+  var el=$('schemaTree');
+  if(!state.conn){el.innerHTML='<div class="empty-hint">请先选择连接</div>';return;}
+  if(state.scene==='loading'){el.innerHTML='<div class="empty-hint">加载中...</div>';return;}
+  var dbs=dbAll.filter(function(d){return SYSTEM_DBS.indexOf(d)<0;});
+  if(state.scene==='errorConn'){el.innerHTML='<div class="empty-hint" style="color:var(--ql-danger)">连接失败: Can\'t connect to MySQL server on \'localhost\' (61)</div>';return;}
+  if(!dbs.length){el.innerHTML='<div class="empty-hint">无可用数据库</div>';return;}
+  var html='';
+  dbs.forEach(function(db){
+    var open=!!state.expanded[db];
+    html+='<div class="db-node'+(open?' open':'')+'" onclick="toggleDb(\''+db+'\')">'
+      +'<svg class="icon caret"><use href="#i-run"/></svg>'+icon('db')+esc(db)+'</div>';
+    if(open){
+      var tables=schemas[db]||[];
+      html+='<div class="db-children">';
+      html+='<button class="add-table-btn" onclick="event.stopPropagation();startCreateTable(\''+db+'\')">'+icon('plus')+'新建表</button>';
+      if(state.scene==='loading'){html+='<div class="empty-hint">加载中...</div>';}
+      else if(!tables.length){html+='<div class="empty-hint">无表</div>';}
+      else{
+        tables.forEach(function(t){
+          var full=db+'.'+t.name;
+          var active=state.currentTableName===full;
+          var isView=t.type==='VIEW';
+          html+='<div class="table-item'+(isView?' isview':'')+(active?' active':'')+'"'
+            +' onclick="selectTable(\''+db+'\',\''+t.name+'\','+(isView?'true':'false')+')"'
+            +' oncontextmenu="openCtx(event,\''+db+'\',\''+t.name+'\','+(isView?'true':'false')+');return false"'
+            +' title="'+esc(t.comment||t.name)+'">'
+            +icon(isView?'view':'table')
+            +'<span class="tname">'+esc(t.name)+'</span>'
+            +(t.comment?'<span class="tcomment">'+esc(t.comment)+'</span>':'')
+            +'</div>';
+        });
+      }
+      html+='</div>';
+    }
+  });
+  el.innerHTML=html;
+}
+function toggleDb(db){
+  if(!state.expanded[db]){
+    state.expanded[db]=false;
+    renderSchemaTree();
+    setTimeout(function(){state.expanded[db]=true;renderSchemaTree();},350);/* 模拟 meta_list_tables */
+  }else{state.expanded[db]=!state.expanded[db];renderSchemaTree();}
+}
+function selectTable(db,table,isView){
+  state.currentDatabase=db;state.currentTableName=db+'.'+table;state.currentTable=table;
+  state.creating=false;state.targetDatabase='';
+  state.grid.db=db;state.grid.table=table;state.grid.page=1;state.grid.selected={};
+  state.grid.filterText='';state.grid.filterCol='all';
+  $('btnViewGrid').style.display='';$('btnViewDesign').style.display=isView?'none':'';
+  setView('grid');
+}
+function startCreateTable(db){
+  state.targetDatabase=db;state.creating=true;state.currentTableName='';
+  $('btnViewGrid').style.display='none';$('btnViewDesign').style.display='';
+  setView('design');
+  initDesignerNew();
+}
+/* 右键菜单（F010-F013） */
+function openCtx(e,db,table,isView){
+  e.preventDefault();
+  var m=$('ctxMenu');
+  m.innerHTML=
+    '<button class="ctx-item" onclick="ctxRefresh()">'+icon('refresh')+'刷新</button>'
+    +'<button class="ctx-item" onclick="ctxRename()">'+icon('rename')+'重命名表</button>'
+    +'<button class="ctx-item" onclick="ctxTruncate()">'+icon('trash')+'清空表数据</button>'
+    +'<div class="ctx-sep"></div>'
+    +'<button class="ctx-item danger" onclick="ctxDrop()">'+icon('trash')+'删除表</button>';
+  m.dataset.db=db;m.dataset.table=table;m.dataset.isview=isView?'1':'';
+  m.style.left=Math.min(e.clientX,window.innerWidth-190)+'px';
+  m.style.top=e.clientY+'px';
+  m.classList.add('on');
+}
+document.addEventListener('click',function(e){
+  var m=$('ctxMenu');
+  if(m.classList.contains('on')&&!m.contains(e.target)){m.classList.remove('on');}
+});
+function ctxTarget(){var m=$('ctxMenu');return {db:m.dataset.db,table:m.dataset.table,isView:!!m.dataset.isview};}
+function ctxRefresh(){
+  var t=ctxTarget();$('ctxMenu').classList.remove('on');
+  delete state.expanded[t.db];state.expanded[t.db]=true;
+  renderSchemaTree();notifyInfo('已刷新 '+t.db+' 的表列表（F010）');
+}
+function ctxRename(){
+  var t=ctxTarget();$('ctxMenu').classList.remove('on');
+  if(t.isView){notifyInfo('视图不支持重命名');return;}
+  $('rnOld').value=t.db+'.'+t.table;$('rnNew').value='';
+  openModal('renameOverlay');
+}
+function doRename(){
+  var nn=$('rnNew').value.trim();
+  if(!nn){notifyError('请输入新表名');return;}
+  var old=$('rnOld').value.split('.');
+  var db=old[0],table=old[1];
+  confirmAction({title:'重命名表',message:'将表 '+db+'.'+table+' 重命名为 '+nn+'？',tone:'info',confirmLabel:'重命名'})
+    .then(function(ok){
+      closeModal('renameOverlay');
+      if(!ok)return;
+      var list=schemas[db];var it=list.find(function(x){return x.name===table;});
+      if(it)it.name=nn;
+      tableData[db+'.'+nn]=tableData[db+'.'+table];delete tableData[db+'.'+table];
+      if(state.currentTableName===db+'.'+table)state.currentTableName=db+'.'+nn;
+      if(state.grid.table===table)state.grid.table=nn;
+      notifySuccess('表重命名成功（RENAME TABLE · F011）');
+      renderSchemaTree();renderGrid();
+    });
+}
+function ctxTruncate(){
+  var t=ctxTarget();$('ctxMenu').classList.remove('on');
+  if(t.isView){notifyInfo('视图不支持清空');return;}
+  confirmAction({title:'清空表数据',message:'确定要清空 '+t.db+'.'+t.table+' 的全部数据吗？此操作不可撤销！',confirmLabel:'清空',tone:'danger'})
+    .then(function(ok){
+      if(!ok)return;
+      tableData[t.db+'.'+t.table].rows=[];
+      notifySuccess('表数据已清空（TRUNCATE · F012）');
+      renderGrid();
+    });
+}
+function ctxDrop(){
+  var t=ctxTarget();$('ctxMenu').classList.remove('on');
+  confirmAction({title:'删除表',message:'⚠️ 此操作不可撤销！表结构和数据将被永久删除！确定删除 '+t.db+'.'+t.table+' 吗？',confirmLabel:'删除',tone:'danger'})
+    .then(function(ok){
+      if(!ok)return;
+      schemas[t.db]=schemas[t.db].filter(function(x){return x.name!==t.table;});
+      if(state.currentTableName===t.db+'.'+t.table){
+        state.currentTableName='';state.currentTable='';
+        $('btnViewGrid').style.display='none';$('btnViewDesign').style.display='none';
+        if(state.view==='grid')setView('query');
+      }
+      notifySuccess('表删除成功（DROP TABLE · F013）');
+      renderSchemaTree();
+    });
+}
+/* 新建数据库（F008，字符集联动） */
+function openNewDbDialog(){
+  if(!state.conn){notifyError('请先连接数据库');return;}
+  $('ndbName').value='';linkNewDbCollation();
+  openModal('newDbOverlay');
+}
+function linkNewDbCollation(){
+  var cs=$('ndbCharset').value;
+  var list=COLLATIONS[cs]||[];
+  $('ndbCollation').innerHTML=list.map(function(c){return '<option>'+c+'</option>';}).join('');
+}
+function createDb(){
+  var name=$('ndbName').value.trim();
+  if(!name){notifyError('请输入数据库名称');return;}
+  dbAll.push(name);schemas[name]=[];
+  state.expanded[name]=true;
+  closeModal('newDbOverlay');
+  notifySuccess('数据库创建成功（meta_create_database · F008）');
+  renderSchemaTree();
+}
+function linkCollation(){
+  var cs=$('optCharset').value;
+  var list=COLLATIONS[cs]||[];
+  $('optCollation').innerHTML=list.map(function(c){return '<option>'+c+'</option>';}).join('');
+  markDirty();
+}
+
+/* =====================================================================
+   PAGE004 SQL 编辑器（F014-F022，B2/B5/B7/B8）
+   ===================================================================== */
+var DEFAULT_SQL="-- MySQL 方言高亮（B5 · 按 driver 字段映射）\nSELECT * FROM `shop`.`users` LIMIT 20;";
+function getSql(){return $('sqlInput').value;}
+function setSql(v){
+  $('sqlInput').value=v;
+  onSqlInput();
+}
+function kwRegex(){
+  return new RegExp('\\b('+SQL_KEYWORDS.join('|')+')\\b','g');
+}
+function highlightSql(sql){
+  var out='',i=0,n=sql.length;
+  function pushText(txt){
+    var esc2=esc(txt);
+    esc2=esc2.replace(/(&#?\w+;)|(\b\d+(\.\d+)?\b)/g,function(m){
+      if(/^\d/.test(m))return '<span class="tok-num">'+m+'</span>';return m;});
+    out+=esc2;
+  }
+  function pushKw(txt){out+='<span class="tok-kw">'+esc(txt)+'</span>';}
+  while(i<n){
+    var ch=sql[i];
+    if(ch==='-'&&sql[i+1]==='-'){
+      var nl=sql.indexOf('\n',i);if(nl<0)nl=n;
+      out+='<span class="tok-com">'+esc(sql.slice(i,nl))+'</span>';i=nl;continue;
+    }
+    if(ch==='/'&&sql[i+1]==='*'){
+      var end=sql.indexOf('*/',i+2);end=end<0?n:end+2;
+      out+='<span class="tok-com">'+esc(sql.slice(i,end))+'</span>';i=end;continue;
+    }
+    if(ch==='\''||ch==='"'||ch==='`'){
+      var j=i+1;
+      while(j<n){
+        if(sql[j]==='\\')j+=2;
+        else if(sql[j]===ch){j++;break;}
+        else j++;
+      }
+      var cls=ch==='`'?'tok-fn':'tok-str';
+      out+='<span class="'+cls+'">'+esc(sql.slice(i,j))+'</span>';i=j;continue;
+    }
+    if(/[A-Za-z_]/.test(ch)){
+      var k=i;while(k<n&&/[A-Za-z0-9_]/.test(sql[k]))k++;
+      var word=sql.slice(i,k);
+      var upper=word.toUpperCase();
+      if(SQL_KEYWORDS.indexOf(upper)>=0)pushKw(word);
+      else if(/^\d/.test(word))out+='<span class="tok-num">'+esc(word)+'</span>';
+      else out+=esc(word);
+      i=k;continue;
+    }
+    if(/\d/.test(ch)){
+      var d=i;while(d<n&&/[\d.]/.test(sql[d]))d++;
+      out+='<span class="tok-num">'+esc(sql.slice(i,d))+'</span>';i=d;continue;
+    }
+    if(/[=<>!+\-*/%]/.test(ch)){out+='<span class="tok-op">'+esc(ch)+'</span>';i++;continue;}
+    out+=esc(ch);i++;
+  }
+  return out;
+}
+function onSqlInput(){
+  var sql=getSql();
+  $('hlCode').innerHTML=highlightSql(sql)+'\n';
+  var lines=sql.split('\n').length;
+  var g='';for(var i=1;i<=Math.max(lines,1);i++)g+=i+'\n';
+  $('gutter').textContent=g;
+  syncScroll();
+  updateStmtPreview();
+}
+function syncScroll(){
+  var ta=$('sqlInput');
+  $('hlLayer').scrollTop=ta.scrollTop;$('hlLayer').scrollLeft=ta.scrollLeft;
+  $('gutter').scrollTop=ta.scrollTop;
+}
+function editorKeydown(e){
+  if(e.key==='Tab'){
+    e.preventDefault();
+    var ta=$('sqlInput'),s=ta.selectionStart;
+    ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd);
+    ta.selectionStart=ta.selectionEnd=s+2;onSqlInput();
+  }
+}
+/* B2 分句（修复旧项目按 ; 裸拆；对齐 SqlEditor parseStatements 语义） */
+function parseStatements(sqlText){
+  var statements=[],current='',i=0,n=sqlText.length;
+  var inString=false,stringChar='',inComment=false,inLineComment=false;
+  while(i<n){
+    var ch=sqlText[i],next=sqlText[i+1]||'';
+    if(!inString&&!inComment&&ch==='-'&&next==='-')inLineComment=true;
+    if(!inString&&!inLineComment&&ch==='/'&&next==='*'){inComment=true;current+=ch;i++;current+=next;i++;continue;}
+    if(inComment&&ch==='*'&&next==='/'){inComment=false;current+=ch;i++;current+=next;i++;continue;}
+    if(!inComment&&!inLineComment&&(ch==='"'||ch==='\''||ch==='`')){
+      if(!inString){inString=true;stringChar=ch;}
+      else if(ch===stringChar){
+        var back=0,k=current.length-1;
+        while(k>=0&&current[k]==='\\'){back++;k--;}
+        if(back%2===0){inString=false;stringChar='';}
+      }
+    }
+    if(inLineComment&&(ch==='\n'||ch==='\r'))inLineComment=false;
+    if(ch===';'&&!inString&&!inComment&&!inLineComment){
+      current+=ch;
+      var trimmed=current.trim();
+      if(trimmed&&!isPureComment(trimmed))statements.push(trimmed);
+      current='';i++;continue;
+    }
+    current+=ch;i++;
+  }
+  var last=current.trim();
+  if(last&&!isPureComment(last))statements.push(last);
+  return statements;
+}
+function isPureComment(stmt){
+  /* 仅当所有行都是注释/空行时才丢弃（带注释前导的有效语句不丢弃） */
+  return stmt.split('\n').every(function(line){return /^\s*(--|$)/.test(line);});
+}
+function activeSql(){
+  var ta=$('sqlInput');
+  var sel=ta.value.substring(ta.selectionStart,ta.selectionEnd).trim();
+  return sel||ta.value;
+}
+function updateStmtPreview(){
+  var sql=activeSql().trim();
+  var bar=$('stmtPreview');
+  if(!sql||state.batchMode){bar.classList.remove('on');return;}
+  var stmts=parseStatements(sql);
+  if(stmts.length>1){
+    var first=stmts[0].replace(/\s+/g,' ').slice(0,60);
+    $('stmtPreviewText').innerHTML='将执行 <b>'+stmts.length+'</b> 条语句 · 首条：<code>'+esc(first)+'</code>';
+    bar.classList.add('on');
+  }else{bar.classList.remove('on');}
+}
+/* B8 补全：FROM/JOIN 后表名（接 Schema 树数据）；其他前缀关键字 */
+function onSqlKeyup(e){
+  if(e.key==='Escape'){hideAc();return;}
+  var ta=$('sqlInput');
+  var before=ta.value.substring(0,ta.selectionStart);
+  var m=before.match(/(?:FROM|JOIN)\s+([A-Za-z_0-9`]*)$/i);
+  if(m){
+    var prefix=m[1].replace(/`/g,'').toLowerCase();
+    var tables=[];
+    Object.keys(schemas).forEach(function(db){
+      schemas[db].forEach(function(t){tables.push({name:t.name,db:db,kind:t.type==='VIEW'?'view':'table'});});
+    });
+    var cand=tables.filter(function(t){return t.name.toLowerCase().indexOf(prefix)===0;}).slice(0,8);
+    showAc(cand.map(function(t){
+      return {label:t.db+'.'+t.name,sub:t.kind==='view'?'视图':'表',cls:'tok-fn'};
+    }),'B8 · 表名补全已接 Schema 树（旧项目 updateTableNames 无填充来源）');
+    return;
+  }
+  var w=before.match(/([A-Za-z_]{1,})$/);
+  if(w&&w[1].length>=1&&state.conn){
+    var pfx=w[1].toUpperCase();
+    var ks=SQL_KEYWORDS.filter(function(k){return k.indexOf(pfx)===0;}).slice(0,8);
+    if(ks.length){
+      showAc(ks.map(function(k){return {label:k,sub:'关键字',cls:'tok-kw'};}),
+        '列名补全受限（需按表拉取 schema，C 类留档 · F020）');
+      return;
+    }
+  }
+  hideAc();
+}
+function showAc(items,note){
+  if(!items.length){hideAc();return;}
+  var html=items.map(function(it,i){
+    return '<div class="ac-item" onmousedown="pickAc('+i+')"><span class="'+it.cls+'" style="font-family:var(--ql-font-family-mono)">'+esc(it.label)+'</span><span style="color:var(--ql-text-secondary);font-size:11px">'+esc(it.sub)+'</span></div>';
+  }).join('');
+  html+='<div class="ac-note">'+esc(note)+'</div>';
+  $('acPop').dataset.items=JSON.stringify(items);
+  $('acPop').innerHTML=html;
+  $('acPop').style.top='36px';$('acPop').style.left='40px';
+  $('acPop').classList.add('on');
+}
+function pickAc(i){
+  var items=JSON.parse($('acPop').dataset.items);
+  var ta=$('sqlInput');
+  var label=items[i].label;
+  var before=ta.value.substring(0,ta.selectionStart);
+  var after=ta.value.substring(ta.selectionEnd);
+  before=before.replace(/([A-Za-z_0-9`]*)$/,'');
+  var pos=(before+label).length;
+  ta.value=before+label+after;
+  ta.selectionStart=ta.selectionEnd=pos;
+  onSqlInput();hideAc();ta.focus();
+}
+function hideAc(){$('acPop').classList.remove('on');}
+function toggleBatch(){
+  state.batchMode=!state.batchMode;
+  $('btnBatch').classList.toggle('primary',state.batchMode);
+  $('btnTx').style.display=state.batchMode?'':'none';
+  $('runLabel').textContent=state.batchMode?'批量运行':'运行';
+  updateStmtPreview();
+}
+function toggleTx(){
+  state.useTx=!state.useTx;
+  $('btnTx').classList.toggle('primary',state.useTx);
+}
+function formatSql(){
+  var sql=getSql();
+  var kw=['FROM','WHERE','AND','OR','GROUP BY','ORDER BY','LIMIT','VALUES','SET','LEFT JOIN','RIGHT JOIN','INNER JOIN','JOIN','HAVING'];
+  var out=sql.replace(/\s+/g,' ');
+  out=out.replace(/(;)/g,';\n');
+  for(var i=0;i<kw.length;i++){
+    var re=new RegExp('\\s+'+kw[i]+'\\s+','gi');
+    out=out.replace(re,'\n'+kw[i]+' ');
+  }
+  out=out.replace(/\b(select|from|where|and|or|not|null|insert|into|values|update|set|delete|create|table|drop|alter|truncate|join|left|right|inner|group|order|by|limit|having|distinct|as|on|in|like|between|is|case|when|then|end)\b/gi,function(m){return m.toUpperCase();});
+  setSql(out.trim());
+  notifyInfo('SQL 已格式化（关键字大写+子句换行 · F017）');
+}
+function clearSql(){setSql('');notifyInfo('编辑器已清空（F022）');}
+function openSnippets(){
+  var html=SNIPPETS.map(function(s,i){
+    return '<button class="snippet-item" onclick="pickSnippet('+i+')"><div class="sname">'+esc(s[0])+'</div><div class="sprev">'+esc(s[1].slice(0,50))+'</div></button>';
+  }).join('');
+  $('snippetGrid').innerHTML=html;
+  openModal('snippetOverlay');
+}
+function pickSnippet(i){
+  var ta=$('sqlInput');
+  var pos=ta.selectionStart;
+  ta.value=ta.value.slice(0,pos)+SNIPPETS[i][1]+'\n'+ta.value.slice(ta.selectionEnd);
+  ta.selectionStart=ta.selectionEnd=pos+SNIPPETS[i][1].length+1;
+  onSqlInput();closeModal('snippetOverlay');ta.focus();
+  notifyInfo('已插入片段：'+SNIPPETS[i][0]+'（F018）');
+}
+/* 历史（F019，B7 搜索过滤生效） */
+function toggleHistory(){$('historyPanel').classList.toggle('open');renderHistory();}
+function pushHistory(sql){
+  var sensitive=SENSITIVE_RE.test(sql);
+  state.history=state.history.filter(function(h){return h.sql!==sql;});
+  state.history.unshift({sql:sql,time:nowTime(),local:!sensitive&&state.historyLocal,sensitive:sensitive});
+  if(state.history.length>100)state.history.length=100;
+  $('histCount').textContent=state.history.length;
+  if(sensitive){
+    state.histNotice='检测到可能包含敏感信息，本条 SQL 仅保留当前会话，不会写入本地历史。';
+  }
+  renderHistory();
+}
+function toggleHistoryMode(){
+  state.historyLocal=!state.historyLocal;
+  $('histModeBtn').textContent=state.historyLocal?'关闭本地保存':'开启本地保存';
+  state.histNotice=state.historyLocal?'已开启本地保存（localStorage: querylab_sql_history）':'已切换为仅会话级历史。';
+  renderHistory();
+}
+function clearHistory(){
+  state.history=[];
+  $('histCount').textContent=0;
+  state.histNotice='历史已清空。';
+  renderHistory();
+}
+function renderHistory(){
+  var notice=$('histNotice');
+  if(state.histNotice){notice.style.display='block';notice.textContent=state.histNotice;}
+  else notice.style.display='none';
+  var q=($('histSearch').value||'').toLowerCase();
+  var list=state.history;
+  if(q)list=list.filter(function(h){return h.sql.toLowerCase().indexOf(q)>=0;});
+  var el=$('histList');
+  if(!list.length){el.innerHTML='<div class="history-empty">'+(q?'无匹配历史':'暂无历史记录')+'</div>';return;}
+  el.innerHTML=list.map(function(h){
+    return '<button class="history-item" onclick="loadHistory('+state.history.indexOf(h)+')">'
+      +'<div class="history-sql">'+esc(h.sql.slice(0,150))+(h.sql.length>150?'...':'')+'</div>'
+      +'<div class="history-meta">'+h.time+(h.local?' · 本地':h.sensitive?' · 会话（敏感拦截）':' · 会话')+'</div></button>';
+  }).join('');
+}
+function loadHistory(i){setSql(state.history[i].sql);notifyInfo('已回填历史 SQL（F019）');}
+function demoSensitive(){
+  setSql("UPDATE users SET password = 'new-secret' WHERE id = 1;");
+  pushHistory(getSql());
+  toggleHistoryOn();
+}
+function toggleHistoryOn(){if(!$('historyPanel').classList.contains('open'))toggleHistory();}
+
+/* ---------- 执行（F015/F016，B2/B3） ---------- */
+function runSql(){
+  hideAc();
+  var sql=activeSql().trim();
+  if(!sql){notifyInfo('编辑器为空');return;}
+  if(!state.conn){
+    state.result=null;state.resultError='请先选择连接';
+    setStatus('No connection');renderResults();notifyError('请先选择连接');
+    return;
+  }
+  pushHistory(sql);
+  if(state.batchMode){
+    runBatch(sql);
+    return;
+  }
+  var stmts=parseStatements(sql);
+  state.loading=true;state.result=null;state.resultError=null;state.resultMsg=null;
+  setStatus('Executing...');renderResults();
+  setTimeout(function(){
+    if(state.scene==='loading'){return;}/* 场景锁定：保持加载态（切场景库继续） */
+    state.loading=false;
+    if(state.scene==='errorConn'){
+      state.resultError='连接失败: Can\'t connect to MySQL server on \'localhost\' (61)';
+      setStatus('Query failed');renderResults();return;
+    }
+    if(state.scene==='errorSql'){
+      state.resultError='SQL 错误: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near \'FORM users\' at line 1 (errno 1064)';
+      setStatus('Query failed');renderResults();return;
+    }
+    var sets=[];
+    stmts.forEach(function(st,i){
+      var probe=stripLineComments(st);
+      var upper=probe.toUpperCase();
+      if(/^(SELECT|SHOW|DESCRIBE|EXPLAIN|WITH)/.test(upper)){
+        var m=probe.match(/FROM\s+`?(\w+)`?\.`?(\w+)`?/i);
+        var cols,rows;
+        if(state.scene==='empty'){
+          cols=usersCols;rows=[];
+        }else if(m&&tableData[m[1]+'.'+m[2]]){
+          cols=tableData[m[1]+'.'+m[2]].cols;
+          rows=tableData[m[1]+'.'+m[2]].rows.slice(0,20);
+        }else{
+          cols=usersCols;rows=tableData['shop.users'].rows.slice(0,5);
+        }
+        sets.push({cols:cols,rows:rows,affected:rows.length});
+      }else{
+        sets.push({cols:[],rows:[],affected:1+Math.floor(Math.random()*3)});
+      }
+    });
+    state.lastQueryId='q'+Date.now().toString(36);
+    state.lastElapsed=12+Math.floor(Math.random()*80);
+    state.result={sets:sets};
+    state.activeSet=0;
+    state.editableTable=extractEditableTable(stmts);
+    setStatus('Query completed in '+state.lastElapsed+'ms');
+    renderResults();
+  },700);
+}
+function stripLineComments(stmt){
+  /* 去除整行注释，用于语句类型判定与表名识别（不影响字符串内容） */
+  return stmt.split('\n').filter(function(l){return !/^\s*--/.test(l);}).join('\n').trim();
+}
+function extractEditableTable(stmts){
+  if(stmts.length!==1)return '';
+  var body=stripLineComments(stmts[0]).replace(/\s+/g,' ').replace(/;$/,'');
+  var m=body.match(/^select \* from `([^`]+)`\.`([^`]+)`(?: limit \d+)?$/i);
+  return m?(m[1]+'.'+m[2]):'';
+}
+function runBatch(sql){
+  var stmts=parseStatements(sql);
+  var finalSql=state.useTx?sql:'\n'+sql;
+  setStatus(state.useTx?'Batch executing with transaction...':'Batch executing...');
+  openBatch(stmts,state.useTx);
+}
+
+/* =====================================================================
+   PAGE012 批量进度面板（B3 接线）
+   ===================================================================== */
+function openBatch(stmts,useTx){
+  var list=stmts.slice();
+  if(useTx)list=['START TRANSACTION;'].concat(list,['COMMIT;']);
+  state.batch={stmts:list,idx:0,ok:0,fail:0,timer:null};
+  $('batchTotal').textContent=list.length;
+  $('batchOk').textContent='0';$('batchFail').textContent='0';
+  $('batchErrBadge').style.display='none';$('batchError').classList.remove('on');
+  renderBatchList();
+  $('batchOverlay').classList.add('on');
+  state.batch.timer=setInterval(batchTick,420);
+}
+function stmtKind(s){
+  var u=s.toUpperCase();
+  if(/^SELECT/.test(u))return {t:'SELECT',i:'search'};
+  if(/^INSERT/.test(u))return {t:'INSERT',i:'plus'};
+  if(/^UPDATE/.test(u))return {t:'UPDATE',i:'edit'};
+  if(/^DELETE/.test(u))return {t:'DELETE',i:'trash'};
+  if(/^CREATE/.test(u))return {t:'CREATE',i:'plus'};
+  if(/^ALTER/.test(u))return {t:'ALTER',i:'design'};
+  if(/^DROP/.test(u))return {t:'DROP',i:'trash'};
+  if(/^(START|COMMIT|ROLLBACK)/.test(u))return {t:'事务',i:'lock'};
+  return {t:'其他',i:'file'};
+}
+function renderBatchList(){
+  var b=state.batch;if(!b)return;
+  var html=b.stmts.map(function(s,i){
+    var st=i<b.idx?(b.failMap&&b.failMap[i]?'failed':'success'):(i===b.idx?'current':'pending');
+    var k=stmtKind(s);
+    return '<div class="stmt-item '+st+'">'+icon(k.i)+'<span>'+k.t+'</span><span class="sprev">'+esc(s.replace(/\s+/g,' ').slice(0,60))+'</span></div>';
+  }).join('');
+  $('batchList').innerHTML=html;
+  $('batchFill').style.width=(b.idx/b.stmts.length*100)+'%';
+  $('batchCount').textContent=b.idx+' / '+b.stmts.length+' 语句执行完成';
+}
+function batchTick(){
+  var b=state.batch;if(!b)return;
+  if(!b.failMap)b.failMap={};
+  if(b.idx<b.stmts.length){
+    var willFail=b.stmts[b.idx].toUpperCase().indexOf('BAD_')>=0;
+    if(willFail){b.fail++;b.failMap[b.idx]=true;}
+    else b.ok++;
+    b.idx++;
+    $('batchOk').textContent=b.ok;$('batchFail').textContent=b.fail;
+    if(b.fail>0){
+      $('batchErrBadge').style.display='';
+      $('batchError').classList.add('on');
+      $('batchError').textContent='SQL 错误: Unknown table \'shop.BAD_TABLE\' (errno 1146)';
+    }
+    renderBatchList();
+  }else{
+    clearInterval(b.timer);b.timer=null;
+    setStatus('Batch completed: '+b.stmts.length+' statements, '+(state.lastElapsed||86)+'ms');
+    notifySuccess('批量执行完成：'+b.ok+' 成功 / '+b.fail+' 失败（B3 · 旧项目组件未接线）');
+    /* 批量结果同样进入结果面板（多结果集 Tab，与旧项目一致） */
+    if(state.scene!=='loading'&&b.ok>0){
+      var sets=[];
+      b.stmts.forEach(function(s){
+        if(/^SELECT/i.test(s)){
+          var m=s.match(/FROM\s+`?(\w+)`?\.`?(\w+)`?/i);
+          var d=(m&&tableData[m[1]+'.'+m[2]])||tableData['shop.users'];
+          sets.push({cols:d.cols,rows:d.rows.slice(0,10),affected:Math.min(10,d.rows.length)});
+        }else{
+          sets.push({cols:[],rows:[],affected:1});
+        }
+      });
+      state.lastQueryId='b'+Date.now().toString(36);
+      state.lastElapsed=86;
+      state.result={sets:sets};
+      state.activeSet=0;
+      state.editableTable='';
+      state.loading=false;
+      renderResults();
+    }
+  }
+}
+function closeBatch(){
+  if(state.batch&&state.batch.timer)clearInterval(state.batch.timer);
+  state.batch=null;
+  $('batchOverlay').classList.remove('on');
+}
+function demoBatch(){
+  openBatch(['UPDATE `shop`.`users` SET status = 1 WHERE id < 10;',
+    'SELECT * FROM `shop`.`orders`;',
+    'SELECT * FROM `shop`.`BAD_TABLE`;',
+    'INSERT INTO `shop`.`orders` (`user_id`,`amount`) VALUES (9, 9.90);',
+    'COMMIT;'],false);
+}
+
+/* =====================================================================
+   PAGE005 结果面板（F023-F027/F056，B4/B10/B11）
+   ===================================================================== */
+function editable(){
+  if(!state.conn||!state.result||state.result.sets.length!==1)return false;
+  var t=state.editableTable;
+  if(!t)return false;
+  var d=tableData[t];
+  if(!d||!d.pk)return false;
+  var set=state.result.sets[0];
+  return set.cols.some(function(c){return c.name===d.pk;});
+}
+function exportName(ext){
+  /* B4：单表直查用表名；任意查询用 query_{id} 兜底，绝不产生空文件名/错位表名 */
+  var t=state.editableTable;
+  var base=t?t.split('.').pop():('query_'+(state.lastQueryId||'q0').slice(-8));
+  return base+'_'+ts()+'.'+ext;
+}
+function download(name,content,mime){
+  var blob=new Blob([content],{type:mime});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+  notifySuccess('导出成功: '+name+'（fs_write_file · F057）');
+}
+function toCsv(cols,rows){
+  var head=cols.map(function(c){return c.name;}).join(',');
+  var body=rows.map(function(r){
+    return cols.map(function(c){
+      var v=r[c.name];
+      if(v===null||v===undefined)return 'NULL';
+      var s=String(v);
+      if(/[",\n]/.test(s))s='"'+s.replace(/"/g,'""')+'"';
+      return s;
+    }).join(',');
+  }).join('\n');
+  return head+'\n'+body;
+}
+function toJson(cols,rows){
+  return JSON.stringify(rows.map(function(r){
+    var o={};cols.forEach(function(c){o[c.name]=r[c.name];});return o;
+  }),null,2);
+}
+function exportResult(kind){
+  if(!state.result||!state.result.sets.length)return;
+  var set=state.result.sets[state.activeSet];
+  if(!set||!set.cols.length){notifyInfo('当前结果集无可导出数据');return;}
+  var name=exportName(kind);
+  confirmAction({title:'系统保存对话框（模拟）',message:'将导出为 '+name+'，确认保存？',tone:'info',confirmLabel:'保存'})
+    .then(function(ok){
+      if(!ok){notifyInfo('已取消导出');return;}
+      var btns=$('exportBtns');btns.style.opacity='.45';
+      setTimeout(function(){
+        btns.style.opacity='';
+        var content=kind==='csv'?toCsv(set.cols,set.rows):toJson(set.cols,set.rows);
+        download(name,content,kind==='csv'?'text/csv':'application/json');
+      },400);
+    });
+}
+function renderResults(){
+  var tabs=$('resultTabs'),info=$('resultsInfo'),body=$('resultsBody'),exp=$('exportBtns');
+  tabs.innerHTML='';exp.innerHTML='';
+  if(state.loading){
+    body.innerHTML='<div class="five-loading"><div class="spinner"></div><span>执行中...</span></div>';
+    info.innerHTML='';return;
+  }
+  if(state.resultError){
+    body.innerHTML='<div class="err-title">'+icon('warn')+'查询失败</div>'
+      +'<pre class="err-pre">'+esc(state.resultError)+'</pre>';
+    info.innerHTML='<span style="color:var(--ql-danger)">Query failed</span>';
+    return;
+  }
+  if(!state.result){
+    body.innerHTML='<div class="five-empty">'+icon('inbox','icon-lg')+'<span>执行 SQL 后结果显示在这里</span></div>';
+    info.innerHTML='';
+    return;
+  }
+  var sets=state.result.sets;
+  sets.forEach(function(s,i){
+    var b=document.createElement('button');
+    b.className='result-tab'+(i===state.activeSet?' active':'');
+    b.textContent='结果 '+(i+1)+' ('+(s.cols.length?s.affected+' 行':'影响 '+s.affected+' 行')+')';
+    b.onclick=function(){state.activeSet=i;state.editingCell=null;renderResults();};
+    tabs.appendChild(b);
+  });
+  var set=sets[state.activeSet];
+  if(!set){
+    body.innerHTML='<div class="five-empty">结果集不存在</div>';return;
+  }
+  if(!set.cols.length){
+    body.innerHTML='<div class="five-msg">'+icon('check')+'<span>执行成功，影响 '+set.affected+' 行</span></div>';
+    info.innerHTML='<span>耗时 '+state.lastElapsed+'ms</span><span>查询ID '+state.lastQueryId.slice(0,8)+'</span>';
+    return;
+  }
+  var canExport=set.rows.length>0;
+  if(canExport){
+    var b1=document.createElement('button');b1.className='btn sm';b1.textContent='CSV';b1.onclick=function(){exportResult('csv');};
+    var b2=document.createElement('button');b2.className='btn sm';b2.textContent='JSON';b2.onclick=function(){exportResult('json');};
+    exp.appendChild(b1);exp.appendChild(b2);
+  }
+  var canEdit=editable()&&!state.editableTable.match(/_no_pk$/);
+  var readonlyReason='';
+  if(!canEdit){
+    readonlyReason=state.editableTable
+      ? '非单表直查或无单列主键，结果只读'
+      : '复杂 SQL 结果只读（门禁：单表直查 + 单列主键）';
+  }
+  info.innerHTML='<span>耗时 '+state.lastElapsed+'ms</span>'
+    +'<span>查询ID '+state.lastQueryId.slice(0,8)+'</span>'
+    +(canEdit?'<span style="color:var(--ql-success)">双击单元格编辑</span>'
+      :'<span class="readonly-notice readonly-reason">'+esc(readonlyReason)+'（B11）</span>');
+  body.innerHTML=renderSetTable(set,canEdit,'result');
+}
+function renderSetTable(set,canEdit,ctx){
+  var html='<table class="datatable"><thead><tr>';
+  set.cols.forEach(function(c){
+    var isPk=state.editableTable&&tableData[state.editableTable]&&tableData[state.editableTable].pk===c.name&&ctx==='result';
+    html+='<th class="'+(isPk?'pk':'')+'">'+(isPk?icon('key')+' ':'')+esc(c.name)+'<span class="ctype">'+esc(c.type)+'</span></th>';
+  });
+  html+='</tr></thead><tbody>';
+  if(!set.rows.length){
+    html+='<tr><td colspan="'+set.cols.length+'" style="text-align:center;color:var(--ql-text-secondary);padding:24px">0 行（空结果，列头保留）</td></tr>';
+  }
+  set.rows.forEach(function(r,ri){
+    html+='<tr>';
+    set.cols.forEach(function(c,ci){
+      var v=r[c.name];
+      var isPkCell=state.editableTable&&tableData[state.editableTable]&&tableData[state.editableTable].pk===c.name&&ctx==='result';
+      var tdCls=isPkCell?'pk-cell':'';
+      var content;
+      if(state.editingCell&&state.editingCell.ctx===ctx&&state.editingCell.ri===ri&&state.editingCell.ci===ci){
+        content=renderCellEditor(v);
+      }else if(v===null||v===undefined){
+        content='<span class="v-null">NULL</span>';
+      }else if(typeof v==='number'){
+        content='<span class="v-num">'+esc(v)+'</span>';
+      }else{
+        content='<span class="v-str">'+esc(v)+'</span>';
+      }
+      var dbl=canEdit&&!isPkCell?' ondblclick="startCellEdit('+ri+','+ci+',\''+ctx+'\')"':'';
+      html+='<td class="'+tdCls+'"'+dbl+'>'+content+'</td>';
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  return html;
+}
+function renderCellEditor(v){
+  var isNull=state.editingCell.isNull;
+  return '<div class="cell-editor">'
+    +'<input id="cellEditInput" value="'+esc(isNull?'':(v===null?'':String(v)))+'" class="'+(isNull?'isnull':'')+'" onkeydown="cellEditKey(event)" autofocus>'
+    +'<button class="cell-op" title="保存" onclick="saveCellEdit()">'+icon('check')+'</button>'
+    +'<button class="cell-op" title="取消" onclick="cancelCellEdit()">'+icon('close')+'</button>'
+    +'<button class="null-toggle'+(isNull?' on':'')+'" onclick="toggleCellNull()" title="NULL 开关">NULL</button>'
+    +'</div>';
+}
+function startCellEdit(ri,ci,ctx){
+  state.editingCell={ri:ri,ci:ci,ctx:ctx,isNull:false};
+  if(ctx==='result')renderResults();
+  else renderGrid();
+  var inp=$('cellEditInput');
+  if(inp){inp.focus();inp.select();}
+}
+function toggleCellNull(){
+  state.editingCell.isNull=!state.editingCell.isNull;
+  if(state.editingCell.ctx==='result')renderResults();else renderGrid();
+  var inp=$('cellEditInput');if(inp)inp.focus();
+}
+function cancelCellEdit(){
+  var wasResult=state.editingCell&&state.editingCell.ctx==='result';
+  state.editingCell=null;
+  if(wasResult)renderResults();else renderGrid();
+}
+function saveCellEdit(){
+  var ec=state.editingCell;if(!ec)return;
+  var val=$('cellEditInput').value;
+  var isNull=ec.isNull;
+  state.editingCell=null;
+  var msg=$('updateMsg');
+  setTimeout(function(){
+    if(ec.ctx==='result'){
+      msg.className='update-msg ok';
+      msg.textContent='更新成功，影响 1 行（query_update_cell · F056/F025）';
+      renderResults();
+      setTimeout(function(){msg.className='update-msg';renderResults();},1600);
+    }else{
+      showGridMsg('ok','更新成功');
+    }
+  },120);
+}
+function cellEditKey(e){
+  if(e.key==='Enter'){e.preventDefault();saveCellEdit();}
+  else if(e.key==='Escape'){e.preventDefault();cancelCellEdit();}
+  else if(e.key==='Tab'&&state.editingCell&&state.editingCell.ctx==='grid'){
+    /* B9：网格编辑 Tab 保留当前值并跳到下一列（修复旧项目 DataGrid L487 丢值） */
+    e.preventDefault();
+    var val=$('cellEditInput').value;
+    var ec=state.editingCell;
+    var colCount=gridMeta().cols.length;
+    var next=Math.min(ec.ci+1,colCount-1);
+    if(next===ec.ci){saveCellEdit();return;}
+    state.editingCell={gi:ec.gi,ci:next,ctx:'grid',isNull:false};
+    renderGrid();
+    var inp=$('cellEditInput');
+    if(inp){inp.value=val;inp.focus();inp.select();}
+  }
+}
+
+/* =====================================================================
+   PAGE006 数据网格（F028-F037，B9/B10）
+   ===================================================================== */
+function gridKey(){
+  return state.grid.db+'.'+state.grid.table;
+}
+function gridMeta(){
+  return tableData[gridKey()]||{cols:[],rows:[],pk:null};
+}
+function gridRowsFiltered(){
+  var meta=gridMeta();
+  var ft=state.grid.filterText.toLowerCase();
+  if(!ft)return meta.rows;
+  return meta.rows.filter(function(r){
+    if(state.grid.filterCol==='all'){
+      return meta.cols.some(function(c){return String(r[c.name]==null?'':r[c.name]).toLowerCase().indexOf(ft)>=0;});
+    }
+    var c=meta.cols[parseInt(state.grid.filterCol,10)];
+    return c&&String(r[c.name]==null?'':r[c.name]).toLowerCase().indexOf(ft)>=0;
+  });
+}
+function gridRowsPage(){
+  var rows=gridRowsFiltered();
+  var ps=state.grid.pageSize;
+  var start=(state.grid.page-1)*ps;
+  return rows.slice(start,start+ps);
+}
+function initGridSelect(){
+  var sel=$('gridFilterCol');
+  sel.innerHTML='<option value="all">所有列</option>'+gridMeta().cols.map(function(c,i){
+    return '<option value="'+i+'">'+esc(c.name)+'</option>';
+  }).join('');
+}
+function renderGrid(){
+  var body=$('gridBody');
+  if(!state.grid.table){body.innerHTML='<div class="five-empty">从 Schema 树选择一个表</div>';$('gridPagination').innerHTML='';return;}
+  if(state.scene==='loading'){
+    body.innerHTML='<div class="five-loading"><div class="spinner"></div><span>加载中...</span></div>';
+    $('gridPagination').innerHTML='';return;
+  }
+  var meta=gridMeta();
+  var rows=gridRowsFiltered();
+  var ps=state.grid.pageSize;
+  var totalPages=Math.max(1,Math.ceil(rows.length/ps));
+  if(state.grid.page>totalPages)state.grid.page=totalPages;
+  var pageRows=gridRowsPage();
+  var noPk=!meta.pk;
+  var isView=state.grid.table.indexOf('v_')===0;
+  $('gridReadonly').style.display=noPk?'flex':'none';
+  $('btnGridDel').disabled=noPk||!Object.keys(state.grid.selected).length;
+  $('selCount').textContent=Object.keys(state.grid.selected).length;
+  $('btnGridClear').style.display=state.grid.filterText?'':'none';
+  initGridSelect();
+  $('gridFilterText').value=state.grid.filterText;
+  $('gridFilterCol').value=state.grid.filterCol;
+  var html='<table class="datatable"><thead><tr><th>#</th><th style="width:28px">'
+    +'<input type="checkbox" onchange="gridToggleAllPage(this.checked)" '+(noPk?'disabled':'')+' style="accent-color:var(--ql-primary)"></th>';
+  meta.cols.forEach(function(c){
+    var isPk=meta.pk===c.name;
+    html+='<th class="'+(isPk?'pk':'')+'">'+(isPk?icon('key')+' ':'')+esc(c.name)+'<span class="ctype">'+esc(c.type)+'</span></th>';
+  });
+  html+='</tr></thead><tbody>';
+  var base=(state.grid.page-1)*ps;
+  if(!pageRows.length&&!state.grid.newRow){
+    html+='<tr><td colspan="'+(meta.cols.length+2)+'" style="text-align:center;padding:28px;color:var(--ql-text-secondary)">'
+      +icon('inbox','icon-lg')+'<div style="margin-top:8px">此表当前没有数据（'+esc(gridKey())+'）</div></td></tr>';
+  }
+  pageRows.forEach(function(r,ri){
+    var gi=base+ri;
+    var sel=state.grid.selected[gi];
+    html+='<tr class="'+(sel?'selected-row ':'')+(state.editingCell&&state.editingCell.gi===gi?'editing-row':'')+'">';
+    html+='<td class="row-num">'+(gi+1)+'</td>';
+    html+='<td><input type="checkbox" '+(noPk?'disabled':'')+' '+(sel?'checked':'')+' onchange="gridToggleRow('+gi+')" style="accent-color:var(--ql-primary)"></td>';
+    meta.cols.forEach(function(c,ci){
+      var isPk=meta.pk===c.name;
+      var v=r[c.name];
+      var content;
+      if(state.editingCell&&state.editingCell.gi===gi&&state.editingCell.ci===ci){
+        content=renderCellEditor(v);
+      }else if(v===null||v===undefined){content='<span class="v-null">NULL</span>';}
+      else if(typeof v==='number'){content='<span class="v-num">'+esc(v)+'</span>';}
+      else{content='<span class="v-str">'+esc(v)+'</span>';}
+      var dbl=(!noPk&&!isPk)?' ondblclick="gridEditCell('+gi+','+ci+')"':'';
+      if(noPk&&!isPk)dbl=' ondblclick="notifyInfo(\'当前表缺少单列主键，暂不支持网格编辑/删除\')"';
+      html+='<td class="'+(isPk?'pk-cell':'')+'"'+dbl+'>'+content+'</td>';
+    });
+    html+='</tr>';
+  });
+  if(state.grid.newRow){
+    html+='<tr class="new-row"><td class="row-num">+</td><td></td>';
+    meta.cols.forEach(function(c,ci){
+      if(ci===state.grid.newRow.col){
+        html+='<td><div class="cell-editor"><input id="gridNewInput" placeholder="'+esc(c.name)+'" onkeydown="gridNewKey(event,'+meta.cols.length+','+ci+')"></div></td>';
+      }else{html+='<td></td>';}
+    });
+    html+='</tr>';
+  }
+  html+='</tbody></table>';
+  body.innerHTML=html;
+  var input=$('gridNewInput');if(input)input.focus();
+  var total=rows.length;
+  $('gridPagination').innerHTML='<span>'+(total===0?'空表':'第 '+state.grid.page+' / '+totalPages+' 页，共 '+total+' 行')+'</span>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin-left:auto">'
+    +'<button class="btn sm" '+(state.grid.page<=1?'disabled':'')+' onclick="gridGoto('+(state.grid.page-1)+')">&lt; 上一页</button>'
+    +'<input class="page-input" value="'+state.grid.page+'" onchange="gridGoto(parseInt(this.value,10)||1)">'
+    +'<button class="btn sm" '+(state.grid.page>=totalPages?'disabled':'')+' onclick="gridGoto('+(state.grid.page+1)+')">下一页 &gt;</button>'
+    +'</div>';
+  if(state.grid.lastMsg){
+    var m=$('gridMsg');
+    m.className='msg-banner '+state.grid.lastMsg.k;
+    m.innerHTML=esc(state.grid.lastMsg.m)+'<button class="x" onclick="hideGridMsg()">&times;</button>';
+    m.style.display='flex';
+  }else{$('gridMsg').style.display='none';}
+}
+function showGridMsg(k,m){state.grid.lastMsg={k:k,m:m};renderGrid();}
+function hideGridMsg(){state.grid.lastMsg=null;renderGrid();}
+function gridToggleRow(gi){
+  if(state.grid.selected[gi])delete state.grid.selected[gi];
+  else state.grid.selected[gi]=true;
+  renderGrid();
+}
+function gridToggleAllPage(on){
+  var base=(state.grid.page-1)*state.grid.pageSize;
+  gridRowsPage().forEach(function(_,i){
+    if(on)state.grid.selected[base+i]=true;else delete state.grid.selected[base+i];
+  });
+  renderGrid();
+}
+function gridGoto(p){
+  var total=gridRowsFiltered().length;
+  var totalPages=Math.max(1,Math.ceil(total/state.grid.pageSize));
+  p=Math.min(Math.max(1,p),totalPages);
+  state.grid.page=p;renderGrid();
+}
+function gridRefresh(){
+  state.grid.selected={};state.grid.newRow=null;state.editingCell=null;
+  state.grid.page=1;
+  showGridMsg('ok','已刷新（F028 重新 COUNT+SELECT）');
+}
+function gridApplyFilter(){
+  state.grid.filterText=$('gridFilterText').value.trim();
+  state.grid.filterCol=$('gridFilterCol').value;
+  state.grid.page=1;
+  renderGrid();
+  if(state.grid.filterText)notifyInfo('已按 LIKE %'+state.grid.filterText+'% 过滤（F030，含转义）');
+}
+function gridClearFilter(){
+  state.grid.filterText='';state.grid.filterCol='all';state.grid.page=1;renderGrid();
+}
+function gridEditCell(gi,ci){
+  state.editingCell={gi:gi,ci:ci,ctx:'grid',isNull:false};
+  renderGrid();
+  var inp=$('cellEditInput');if(inp){inp.focus();inp.select();}
+}
+function gridAddRow(){
+  var meta=gridMeta();
+  state.grid.newRow={col:0};
+  renderGrid();
+}
+function gridNewKey(e,colCount,ci){
+  if(e.key==='Enter'||e.key==='Tab'){
+    e.preventDefault();
+    var val=$('gridNewInput').value;
+    var meta=gridMeta();
+    if(ci+1>=colCount){
+      state.grid.newRow=null;
+      tableData[gridKey()].rows.push(JSON.parse(JSON.stringify(makeRow(meta,val))));
+      showGridMsg('ok','插入成功（自增主键列已排除 · F032）');
+    }else{
+      state.grid.newRow.col=ci+1;
+      state.grid.newRow.vals=(state.grid.newRow.vals||{});
+      state.grid.newRow.vals[meta.cols[ci].name]=val;
+      renderGrid();
+    }
+  }else if(e.key==='Escape'){state.grid.newRow=null;renderGrid();}
+}
+function makeRow(meta,lastVal){
+  var r={};
+  meta.cols.forEach(function(c,i){
+    if(meta.pk===c.name){r[c.name]=Math.max.apply(null,meta.rows.map(function(x){return x[c.name]||0;}).concat([0]))+1;return;}
+    r[c.name]=(state.grid.newRow&&state.grid.newRow.vals&&state.grid.newRow.vals[c.name]!==undefined)?state.grid.newRow.vals[c.name]:(i===meta.cols.length-1?lastVal:null);
+  });
+  return r;
+}
+function gridDelete(){
+  var n=Object.keys(state.grid.selected).length;
+  if(!n){notifyInfo('请先勾选要删除的行');return;}
+  $('gridDelText').textContent='确定要删除选中的 '+n+' 行数据吗？此操作不可撤销！';
+  openModal('gridDelOverlay');
+}
+function execGridDelete(){
+  closeModal('gridDelOverlay');
+  var idxs=Object.keys(state.grid.selected).map(Number).sort(function(a,b){return b-a;});
+  var rows=tableData[gridKey()].rows;
+  idxs.forEach(function(i){if(rows[i]!==undefined)rows.splice(i,1);});
+  state.grid.selected={};
+  showGridMsg('ok','成功删除 '+idxs.length+' 行（逐行 DELETE … LIMIT 1 · F033）');
+  notifySuccess('成功删除 '+idxs.length+' 行');
+}
+function gridExport(kind){
+  var meta=gridMeta();
+  if(!meta.cols.length){notifyInfo('无数据');return;}
+  var name=state.grid.table+'_'+ts()+'.'+kind;
+  confirmAction({title:'系统保存对话框（模拟）',message:'将导出为 '+name+'，确认保存？',tone:'info',confirmLabel:'保存'})
+    .then(function(ok){
+      if(!ok){notifyInfo('已取消导出');return;}
+      var rows=gridRowsFiltered();
+      var content;
+      if(kind==='csv')content=toCsv(meta.cols,rows);
+      else if(kind==='json')content=toJson(meta.cols,rows);
+      else{
+        content=rows.map(function(r){
+          var vals=meta.cols.map(function(c){
+            var v=r[c.name];
+            if(v===null||v===undefined)return 'NULL';
+            if(typeof v==='number')return String(v);
+            return "'"+String(v).replace(/\\/g,'\\\\').replace(/'/g,"''")+"'";
+          });
+          return 'INSERT INTO `'+state.grid.db+'`.`'+state.grid.table+'` ('+meta.cols.map(function(c){return '`'+c.name+'`';}).join(', ')+') VALUES ('+vals.join(', ')+');';
+        }).join('\n');
+      }
+      download(name,content,kind==='csv'?'text/csv':(kind==='json'?'application/json':'text/plain'));
+    });
+}
+
+/* =====================================================================
+   PAGE007 表设计器（F038-F042）
+   ===================================================================== */
+var TYPE_GROUPS={
+  '整数':['INT','BIGINT','TINYINT','SMALLINT','MEDIUMINT'],
+  '浮点数':['DECIMAL','FLOAT','DOUBLE'],
+  '字符串':['VARCHAR','CHAR','TEXT','LONGTEXT'],
+  '二进制':['BLOB','BINARY','VARBINARY'],
+  '日期时间':['DATETIME','DATE','TIMESTAMP','TIME'],
+  '其他':['JSON','ENUM','BOOLEAN']
+};
+var LENGTH_TYPES=['CHAR','VARCHAR','BINARY','VARBINARY','DECIMAL','NUMERIC'];
+function baseType(t){return t.replace(/\(.*/,'');}
+function initDesignerNew(){
+  state.design={mode:'new',columns:[{name:'id',type:'INT',length:'',nullable:false,pk:true,ai:true,def:'',comment:''}],original:null,dirty:false,indexes:[]};
+  $('newTableName').style.display='';
+  $('newTableName').value='';
+  $('designerTitleText').textContent='新建表 - '+state.targetDatabase+'.';
+  $('unsavedIndicator').classList.remove('on');
+  $('designerError').classList.remove('on');
+  $('optEngine').value='InnoDB';$('optCharset').value='utf8mb4';linkCollation();$('optComment').value='';
+  $('indexReadonly').innerHTML='新建表暂无索引（PRIMARY KEY 将随列定义生成）。';
+  renderCols();
+}
+function initDesignerEdit(){
+  var key=state.currentTableName;
+  var meta=tableData[key]||{cols:usersCols};
+  var cols=meta.cols.map(function(c){
+    return {name:c.name,type:baseType(c.type),length:(c.type.match(/\((\d+)\)/)||['',''])[1],
+      nullable:!c.pk,def:'',comment:'',pk:!!c.pk,ai:!!(c.ai||c.pk&&c.name==='id')};
+  });
+  state.design={mode:'edit',columns:cols,original:JSON.parse(JSON.stringify(cols)),dirty:false,
+    indexes:[{name:'PRIMARY',cols:[meta.pk],unique:true},{name:'idx_status',cols:['status'],unique:false}]};
+  $('newTableName').style.display='none';
+  $('designerTitleText').textContent='表设计 - '+key;
+  $('unsavedIndicator').classList.remove('on');
+  $('designerError').classList.remove('on');
+  $('indexReadonly').innerHTML='<b style="color:var(--ql-text-primary)">索引（只读展示，编辑能力规划中 · C 类留档 PF-14）</b><br>'
+    +state.design.indexes.map(function(ix){
+      return esc(ix.name)+' ('+ix.cols.join(', ')+')'+(ix.unique?' · UNIQUE':'');
+    }).join('<br>');
+  renderCols();
+}
+function renderCols(){
+  var html='';
+  state.design.columns.forEach(function(c,i){
+    var typeOpts='';
+    Object.keys(TYPE_GROUPS).forEach(function(g){
+      typeOpts+='<optgroup label="'+g+'">'+TYPE_GROUPS[g].map(function(t){return '<option'+(t===c.type?' selected':'')+'>'+t+'</option>';}).join('')+'</optgroup>';
+    });
+    var showLen=LENGTH_TYPES.indexOf(c.type)>=0?'':'display:none';
+    html+='<tr class="'+(state.design.original&&(!state.design.original[i]||state.design.original[i].name!==c.name)?'new-col-row':'')+'">'
+      +'<td><input type="checkbox" '+(c.pk?'checked':'')+' onchange="colChange('+i+',\'pk\',this.checked)"></td>'
+      +'<td><input type="checkbox" '+(c.ai?'checked':'')+' '+(c.pk?'':'disabled')+' onchange="colChange('+i+',\'ai\',this.checked)"></td>'
+      +'<td><input type="text" value="'+esc(c.name)+'" oninput="colChange('+i+',\'name\',this.value)"></td>'
+      +'<td><select onchange="colChange('+i+',\'type\',this.value)">'+typeOpts+'</select></td>'
+      +'<td><input type="text" value="'+esc(c.length)+'" style="'+showLen+'" id="len'+i+'" oninput="colChange('+i+',\'length\',this.value)"></td>'
+      +'<td><input type="checkbox" '+(c.nullable?'checked':'')+' '+(c.pk?'disabled':'')+' onchange="colChange('+i+',\'nullable\',this.checked)"></td>'
+      +'<td><input type="text" value="'+esc(c.def)+'" oninput="colChange('+i+',\'def\',this.value)"></td>'
+      +'<td><input type="text" value="'+esc(c.comment)+'" oninput="colChange('+i+',\'comment\',this.value)"></td>'
+      +'<td><button class="icon-btn danger" title="删除列" onclick="delCol('+i+')">'+icon('trash')+'</button></td>'
+      +'</tr>';
+  });
+  $('colsBody').innerHTML=html;
+}
+function markDirty(){
+  state.design.dirty=true;
+  $('unsavedIndicator').classList.add('on');
+}
+function colChange(i,field,val){
+  var c=state.design.columns[i];
+  c[field]=val;
+  if(field==='pk'&&val){c.nullable=false;}
+  if(field==='ai'&&val){c.pk=true;c.nullable=false;}
+  // D1 修复：pk/nullable/ai 变化后重渲染，使联动禁用/勾选状态与数据层一致（复用 renderCols 现有规格，不新增联动规则；文本字段仍不重绘以免打断输入）
+  if(field==='type'||field==='pk'||field==='nullable'||field==='ai'){renderCols();}
+  markDirty();
+}
+function addColumn(){
+  state.design.columns.push({name:'',type:'VARCHAR',length:'255',nullable:true,def:'',comment:'',pk:false,ai:false});
+  renderCols();markDirty();
+}
+function delCol(i){state.design.columns.splice(i,1);renderCols();markDirty();}
+function designerValidate(){
+  var cols=state.design.columns;
+  if(!cols.length)return '至少需要一列';
+  if(state.design.mode==='new'&&!$('newTableName').value.trim())return '请输入表名';
+  var pkCount=0;
+  for(var i=0;i<cols.length;i++){
+    var c=cols[i];
+    if(!c.name)return '列名不能为空';
+    if(!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c.name))return '列名 "'+c.name+'" 不符合命名规则';
+    if(c.ai&&!c.pk)return '列 "'+c.name+'" 设置了自增必须是主键';
+    if(c.pk)pkCount++;
+  }
+  if(pkCount>1)return '目前只支持单列主键';
+  return '';
+}
+function colDef(c){
+  var d='`'+c.name+'` '+c.type+(c.length?'('+c.length+')':'');
+  if(c.pk||c.ai||!c.nullable)d+=' NOT NULL';
+  if(c.ai)d+=' AUTO_INCREMENT';
+  if(c.def)d+=" DEFAULT '"+c.def+"'";
+  if(c.comment)d+=" COMMENT '"+c.comment+"'";
+  return d;
+}
+function designerSave(){
+  var err=designerValidate();
+  if(err){
+    var eb=$('designerError');eb.textContent=err;eb.classList.add('on');
+    notifyError(err);return;
+  }
+  $('designerError').classList.remove('on');
+  var btn=$('btnDesignSave');btn.disabled=true;btn.textContent='保存中...';
+  setTimeout(function(){
+    btn.disabled=false;btn.innerHTML=icon('save')+'保存';
+    if(state.design.mode==='new'){
+      var name=$('newTableName').value.trim();
+      var db=state.targetDatabase;
+      var cols=state.design.columns;
+      var pk=cols.find(function(c){return c.pk;});
+      tableData[db+'.'+name]={cols:cols.map(function(c){
+        return {name:c.name,type:c.type+(c.length?'('+c.length+')':''),pk:!!c.pk,ai:!!c.ai};
+      }),rows:[],pk:pk?pk.name:null};
+      schemas[db].push({name:name,type:'BASE TABLE',comment:'新建'});
+      state.creating=false;state.targetDatabase='';
+      state.currentDatabase=db;state.currentTableName=db+'.'+name;state.currentTable=name;
+      state.grid.db=db;state.grid.table=name;state.grid.page=1;
+      $('creatingIndicator').style.display='none';
+      $('btnViewGrid').style.display='';
+      notifySuccess("表 '"+db+'.'+name+"' 创建成功（meta_create_table · F038）");
+      setView('grid');
+      renderSchemaTree();
+    }else{
+      var alters=buildAlter();
+      if(!alters.length){
+        notifyInfo('没有需要保存的结构变更');
+        state.design.dirty=false;$('unsavedIndicator').classList.remove('on');
+        return;
+      }
+      $('alterPreview').textContent=alters.join('\n');
+      openModal('alterOverlay');
+    }
+  },500);
+}
+function buildAlter(){
+  var key=state.currentTableName;
+  var parts=key.split('.');
+  var db=parts[0],table=parts[1];
+  var orig=state.design.original||[];
+  var cols=state.design.columns;
+  var out=[];
+  orig.forEach(function(o){
+    var cur=cols.find(function(c){return c.name===o.name;});
+    if(!cur)out.push('ALTER TABLE `'+db+'`.`'+table+'` DROP COLUMN `'+o.name+'`;');
+  });
+  cols.forEach(function(c){
+    var o=orig.find(function(x){return x.name===c.name;});
+    if(!o){
+      var add='ALTER TABLE `'+db+'`.`'+table+'` ADD COLUMN '+colDef(c);
+      if(c.pk)add+=', ADD PRIMARY KEY (`'+c.name+'`)';
+      out.push(add+';');
+    }else if(o.type!==c.type||o.length!==c.length||o.nullable!==c.nullable||o.def!==c.def||o.comment!==c.comment){
+      out.push('ALTER TABLE `'+db+'`.`'+table+'` MODIFY COLUMN '+colDef(c)+';');
+    }
+  });
+  out.push('-- 表选项: ENGINE='+$('optEngine').value+' CHARSET='+$('optCharset').value+' COLLATE='+$('optCollation').value);
+  return out.slice(0,-1);
+}
+function execAlter(){
+  closeModal('alterOverlay');
+  notifySuccess('表结构保存成功（diff → ALTER 逐条执行 · F039）');
+  state.design.dirty=false;$('unsavedIndicator').classList.remove('on');
+  state.design.original=JSON.parse(JSON.stringify(state.design.columns));
+  renderSchemaTree();
+}
+function closeDesigner(){
+  state.creating=false;state.targetDatabase='';
+  $('creatingIndicator').style.display='none';
+  if(state.currentTableName)setView('grid');else setView('query');
+}
+
+/* =====================================================================
+   PAGE008 结构对比（F043-F047，B6 正确插值）
+   ===================================================================== */
+function userDbs(){return dbAll.filter(function(d){return SYSTEM_DBS.indexOf(d)<0;});}
+function initSyncSelects(){
+  var dbs=userDbs();
+  var html='<option value="">请选择…</option>'+dbs.map(function(d){return '<option>'+d+'</option>';}).join('');
+  $('syncSource').innerHTML=html;$('syncTarget').innerHTML=html;
+  if(state.conn){$('syncSource').value='shop';$('syncTarget').value='analytics';}
+}
+function syncGuard(){/* 切换库时清空结果 */state.sync.diffs=null;$('syncResultArea').style.display='none';}
+function syncCompare(){
+  var src=$('syncSource').value,dst=$('syncTarget').value;
+  if(!src||!dst){notifyError('请选择源数据库和目标数据库');return;}
+  if(src===dst){notifyError('源数据库和目标数据库不能相同');return;}
+  var btn=$('btnCompare');btn.disabled=true;btn.textContent='比较中...';
+  $('syncError').classList.remove('on');
+  setTimeout(function(){
+    btn.disabled=false;btn.innerHTML=icon('search')+'开始比较';
+    if(state.scene==='errorConn'){
+      var eb=$('syncError');
+      eb.textContent='连接失败: Can\'t connect to MySQL server（比较中断）';
+      eb.classList.add('on');return;
+    }
+    /* 模拟差异（shop → analytics） */
+    var diffs=[];
+    if(src==='shop'&&dst==='analytics'){
+      diffs=[
+        {table:'products',kind:'add',note:'目标缺少',cols:'+',detail:{add:[{name:'id',type:'INT'},{name:'title',type:'VARCHAR(120)'},{name:'price',type:'DECIMAL(8,2)'}],del:[],mod:[]}},
+        {table:'log_no_pk',kind:'add',note:'目标缺少',cols:'+',detail:{add:[{name:'seq',type:'INT'},{name:'level',type:'VARCHAR(10)'},{name:'message',type:'TEXT'}],del:[],mod:[]}},
+        {table:'archive_empty',kind:'del',note:'源缺少',cols:'-',detail:{add:[],del:[{name:'id',type:'INT'}],mod:[]}},
+        {table:'users',kind:'mod',note:'列与索引差异',cols:'~-1',idxDiff:true,detail:{
+          add:[{name:'email',type:'VARCHAR(100)'}],
+          del:[],
+          mod:[{name:'status',srcType:'TINYINT(1)',dstType:'SMALLINT'}]}}
+      ];
+    }else{
+      diffs=[{table:'users',kind:'mod',note:'列差异',cols:'~1',detail:{add:[{name:'email',type:'VARCHAR(100)'}],del:[],mod:[]}}];
+    }
+    state.sync.diffs=diffs;
+    state.sync.selected={};diffs.forEach(function(d){state.sync.selected[d.table]=true;});
+    state.sync.detail=diffs.length?diffs[0].table:null;
+    renderSync();
+  },800);
+}
+function renderSync(){
+  var diffs=state.sync.diffs;
+  if(!diffs){$('syncResultArea').style.display='none';return;}
+  $('syncResultArea').style.display='';
+  if(!diffs.length){
+    $('syncSummary').innerHTML='<span class="summary-item">没有发现结构差异，两个数据库结构相同</span>';
+    $('diffList').innerHTML='';$('syncDetail').style.display='none';return;
+  }
+  var add=diffs.filter(function(d){return d.kind==='add';}).length;
+  var del=diffs.filter(function(d){return d.kind==='del';}).length;
+  var mod=diffs.filter(function(d){return d.kind==='mod';}).length;
+  $('syncSummary').innerHTML=
+    '<span class="summary-item">源表数<b>'+ (schemas[$('syncSource').value]||[]).length+'</b></span>'
+    +'<span class="summary-item">目标表数<b>'+(schemas[$('syncTarget').value]||[]).length+'</b></span>'
+    +'<span class="summary-item">新增表<b>'+add+'</b></span>'
+    +'<span class="summary-item">删除表<b>'+del+'</b></span>'
+    +'<span class="summary-item">差异表<b>'+mod+'</b></span>'
+    +'<span class="summary-item">已选中<b>'+Object.keys(state.sync.selected).length+'</b></span>';
+  var html='';
+  diffs.forEach(function(d){
+    var label={add:'新增',del:'删除',mod:'有差异'}[d.kind];
+    var tags='';
+    if(d.detail.add.length)tags+='<span class="add">+'+d.detail.add.length+' 列</span>';
+    if(d.detail.del.length)tags+='<span class="del">-'+d.detail.del.length+' 列</span>';
+    if(d.detail.mod.length)tags+='<span class="mod">~'+d.detail.mod.length+' 列</span>';
+    if(d.idxDiff)tags+='<span class="mod">索引差异</span>';
+    html+='<div class="diff-item '+d.kind+'" onclick="syncShowDetail(\''+d.table+'\')">'
+      +'<input type="checkbox" '+(state.sync.selected[d.table]?'checked':'')+' onclick="event.stopPropagation();syncToggle(\''+d.table+'\')">'
+      +'<span class="tname">'+esc(d.table)+'</span><span class="badge '+d.kind+'">'+label+'</span>'
+      +'<span class="col-tags">'+tags+'</span></div>';
+  });
+  $('diffList').innerHTML=html;
+  renderSyncDetail();
+  syncRunBtnState();
+}
+function syncToggle(t){
+  if(state.sync.selected[t])delete state.sync.selected[t];else state.sync.selected[t]=true;
+  renderSync();syncRunBtnState();
+}
+function syncToggleAll(on){
+  state.sync.selected={};
+  if(on)state.sync.diffs.forEach(function(d){state.sync.selected[d.table]=true;});
+  renderSync();syncRunBtnState();
+}
+function syncRunBtnState(){
+  $('btnSyncRun').disabled=!Object.keys(state.sync.selected).length;
+}
+function syncShowDetail(t){state.sync.detail=t;renderSync();}
+function syncSql(){
+  var src=$('syncSource').value,dst=$('syncTarget').value;
+  var lines=[];
+  state.sync.diffs.forEach(function(d){
+    if(!state.sync.selected[d.table])return;
+    if(d.kind==='add'){
+      lines.push('-- 新增表 '+src+'.'+d.table+'：需要手动创建（不自动生成 CREATE，承诺边界）');
+    }else if(d.kind==='del'){
+      lines.push('DROP TABLE IF EXISTS `'+dst+'`.`'+d.table+'`;');
+    }else{
+      var q='ALTER TABLE `'+dst+'`.`'+d.table+'`';
+      d.detail.add.forEach(function(c){lines.push(q+' ADD COLUMN `'+c.name+'` '+c.type+';');});
+      d.detail.mod.forEach(function(c){
+        /* B6：正确插值目标库表名（修复旧项目 {targetDatabase} 字面量输出） */
+        lines.push('ALTER TABLE `'+dst+'`.`'+d.table+'`\n  MODIFY COLUMN `'+c.name+'` '+c.dstType+';');
+      });
+      if(d.idxDiff)lines.push('-- 索引差异：'+src+'.'+d.table+' idx_status 需同步（本预览不生成索引 DDL）');
+    }
+  });
+  return lines.join('\n');
+}
+function renderSyncDetail(){
+  var t=state.sync.detail;
+  var box=$('syncDetail');
+  if(!t){box.style.display='none';return;}
+  var d=state.sync.diffs.find(function(x){return x.table===t;});
+  if(!d){box.style.display='none';return;}
+  box.style.display='';
+  var rows='';
+  d.detail.add.forEach(function(c){rows+='<tr><td>'+esc(c.name)+'</td><td class="st-add">新增</td><td>'+esc(c.type)+'</td><td>—</td><td>—</td><td>—</td></tr>';});
+  d.detail.del.forEach(function(c){rows+='<tr><td>'+esc(c.name)+'</td><td class="st-del">删除</td><td>—</td><td>'+esc(c.type)+'</td><td>—</td><td>—</td></tr>';});
+  d.detail.mod.forEach(function(c){rows+='<tr><td>'+esc(c.name)+'</td><td class="st-mod">修改</td><td>'+esc(c.srcType)+'</td><td>'+esc(c.dstType)+'</td><td>—</td><td>—</td></tr>';});
+  box.innerHTML='<div class="detail-panel"><h3>'+icon('table')+'列差异 — '+esc(t)
+    +'<button class="icon-btn" style="margin-left:auto" onclick="state.sync.detail=null;renderSync()">'+icon('close')+'</button></h3>'
+    +'<table class="diffcols-table"><thead><tr><th>列名</th><th>状态</th><th>源类型</th><th>目标类型</th><th>可空</th><th>默认值</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +(d.idxDiff?'<div style="font-size:var(--ql-font-size-xs);color:var(--ql-warning);margin-bottom:8px">检测到索引差异（idx_status 仅存在于源库）</div>':'')
+    +'<div style="font-size:var(--ql-font-size-xs);color:var(--ql-text-secondary);margin-bottom:6px">同步 SQL 预览（B6 · 修复：正确插值目标库/表名）</div>'
+    +'<pre class="sql-preview">'+esc(syncSql())+'</pre></div>';
+}
+function syncCopy(){
+  var sql=syncSql();
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(sql).then(function(){notifySuccess('SQL 已复制到剪贴板（F046）');},
+      function(){notifyError('复制失败：剪贴板不可用（file:// 限制）');});
+  }else{notifyError('复制失败：剪贴板不可用（file:// 限制）');}
+}
+function syncExport(){
+  var src=$('syncSource').value,dst=$('syncTarget').value;
+  download('sync_'+src+'_to_'+dst+'_'+ts()+'.sql',syncSql(),'text/plain');
+}
+function syncExecute(){
+  var n=Object.keys(state.sync.selected).length;
+  if(!n)return;
+  confirmAction({title:'执行结构变更',message:'此操作会直接修改目标数据库结构，且不可撤销。建议先完成 SQL 备份。确定执行 '+n+' 个表的结构变更吗？',confirmLabel:'执行',tone:'danger'})
+    .then(function(ok){
+      if(!ok)return;
+      var btn=$('btnSyncRun');btn.disabled=true;btn.textContent='同步中...';
+      setTimeout(function(){
+        btn.disabled=false;btn.innerHTML=icon('run')+'执行同步';
+        notifySuccess('结构变更已执行完成（逐句 query_execute · F047）');
+        state.sync.diffs=null;
+        $('syncResultArea').style.display='none';
+        renderSchemaTree();
+      },900);
+    });
+}
+
+/* =====================================================================
+   PAGE009 备份还原（F048-F049）
+   ===================================================================== */
+function initBackupSelects(){
+  var dbs=userDbs();
+  var html='<option value="">请选择数据库…</option>'+dbs.map(function(d){return '<option>'+d+'</option>';}).join('');
+  $('bkDb').innerHTML=html;$('bkImportDb').innerHTML=html;
+}
+function switchBackupTab(tab){
+  $('tabExport').classList.toggle('active',tab==='export');
+  $('tabImport').classList.toggle('active',tab==='import');
+  $('backupExportPane').style.display=tab==='export'?'':'none';
+  $('backupImportPane').style.display=tab==='import'?'':'none';
+}
+function loadBackupTables(){
+  var db=$('bkDb').value;
+  var grid=$('bkTables');
+  if(!db){grid.innerHTML='';return;}
+  var tables=(schemas[db]||[]).filter(function(t){return t.type!=='VIEW';});
+  grid.innerHTML=tables.map(function(t){
+    return '<label><input type="checkbox" checked value="'+esc(t.name)+'" style="accent-color:var(--ql-primary)"> '+esc(t.name)+'</label>';
+  }).join('');
+}
+function toggleAllBkTables(btn){
+  var boxes=$('bkTables').querySelectorAll('input');
+  var to=!boxes[0].checked;
+  boxes.forEach(function(b){b.checked=to;});
+  btn.textContent=to?'取消全选':'全选';
+}
+function backupExport(){
+  var db=$('bkDb').value;
+  if(!db){notifyError('请选择数据库');return;}
+  var boxes=Array.prototype.slice.call($('bkTables').querySelectorAll('input'));
+  var sel=boxes.filter(function(b){return b.checked;}).map(function(b){return b.value;});
+  if(!sel.length){notifyError('请选择至少一个表');return;}
+  var name=db+'_backup_'+ts()+'.sql';
+  confirmAction({title:'系统保存对话框（模拟）',message:'将导出为 '+name+'（结构 + 数据 SQL），确认保存？',tone:'info',confirmLabel:'保存'})
+    .then(function(ok){
+      if(!ok){notifyInfo('已取消导出');return;}
+      var btn=$('btnBkExport');btn.disabled=true;btn.textContent='正在导出...';
+      $('bkExpTrack').style.display='';$('bkExpFill').style.width='0';
+      var p=0;
+      var timer=setInterval(function(){
+        p+=25;$('bkExpFill').style.width=p+'%';
+        $('bkExpStatus').textContent='正在导出... '+p+'%';
+        if(p>=100){
+          clearInterval(timer);
+          btn.disabled=false;btn.innerHTML=icon('export')+'开始导出';
+          var res=$('bkExpResult');
+          res.className='result-block ok';
+          res.textContent='备份导出成功\n保存位置: ~/Downloads/'+name+'\n表数量: '+sel.length;
+          notifySuccess('备份导出成功（db_export · F048）');
+        }
+      },350);
+    });
+}
+function onBkFileChosen(input){
+  if(input.files&&input.files[0])$('bkImportFile').value=input.files[0].name;
+}
+function backupImport(){
+  var db=$('bkImportDb').value;
+  if(!db){notifyError('请选择数据库');return;}
+  if(!$('bkImportFile').value){notifyError('请选择导入文件');return;}
+  var btn=$('btnBkImport');btn.disabled=true;btn.textContent='导入中...';
+  $('bkImpTrack').style.display='';$('bkImpFill').style.width='0';
+  var p=0;
+  var timer=setInterval(function(){
+    p+=20;$('bkImpFill').style.width=p+'%';
+    $('bkImpStatus').textContent='正在导入... '+p+'%';
+    if(p>=100){
+      clearInterval(timer);
+      btn.disabled=false;btn.innerHTML=icon('file')+'开始导入';
+      var res=$('bkImpResult');
+      res.className='result-block ok';
+      res.textContent='导入完成\n表数量: 3\n行数: 约 1280'+($('bkDropExisting').checked?'\n（已按选择先删除现有表）':'');
+      notifySuccess('备份导入成功（db_import · F049）');
+    }
+  },380);
+}
+
+/* =====================================================================
+   PAGE011 侧滑面板（F050）
+   ===================================================================== */
+var SHELL_CONTENT={
+  settings:{title:'设置',html:
+    '<div class="shell-section"><h3>安全与存储</h3><ul>'
+    +'<li>连接密码仅存系统钥匙串（service: com.i2kai.querylab.connection），connections.json 不落密码。</li>'
+    +'<li>SQL 历史默认仅会话级；含敏感词（password/token 等）的 SQL 永不写入本地。</li>'
+    +'<li>备份/导入仅支持 SQL 格式。</li></ul></div>'
+    +'<div class="shell-section"><h3>当前限制</h3><ul>'
+    +'<li>结构对比仅支持结构差异分析与结构 SQL 执行，不做数据同步。</li>'
+    +'<li>结果面板仅对「单表直查 + 单列主键」开放单元格编辑；数据网格仅对单列主键表开放更新/删除。</li>'
+    +'<li>列名自动补全受限（C 类留档）。</li></ul></div>'
+    +'<div class="shell-section"><h3>V1 修复说明（B 类）</h3><ul>'
+    +'<li>B1 编辑连接密码留空 = 保持原密码（不再清空钥匙串）。</li>'
+    +'<li>B2 分句预览；B3 批量进度接线；B4 导出文件名兜底；B5 方言按 driver 映射。</li>'
+    +'<li>完整清单见 docs/06_review/PRODUCT_REVIEW.md §5.1。</li></ul></div>'},
+  help:{title:'帮助',html:
+    '<div class="shell-section"><h3>快速开始</h3><ol>'
+    +'<li>在连接区点击 + 新建连接（可选「测试」验证连通性）。</li>'
+    +'<li>点击连接项进入工作区，展开库浏览表。</li>'
+    +'<li>SQL 查询视图编写 SQL，Ctrl+Enter 执行；结果支持导出与受限编辑。</li>'
+    +'<li>点表进入数据网格，浏览/筛选/编辑数据。</li></ol></div>'
+    +'<div class="shell-section"><h3>核心能力边界</h3><ul>'
+    +'<li>支持 MySQL / MariaDB；本地优先，无网络依赖。</li>'
+    +'<li>结构对比为预览形态；备份仅 SQL。</li>'
+    +'<li>危险操作（删表/清空/删行/结构变更）均需二次确认。</li></ul></div>'
+    +'<div class="shell-section"><h3>快捷键</h3><ul>'
+    +'<li><kbd>Ctrl+Enter</kbd> 执行（选中优先）</li>'
+    +'<li><kbd>Ctrl+S</kbd> 格式化 · <kbd>Ctrl+H</kbd> 历史</li>'
+    +'<li><kbd>Ctrl+K</kbd> 清空 · <kbd>F1</kbd> 片段 · <kbd>Ctrl+F</kbd> 搜索</li></ul></div>'},
+  about:{title:'关于',html:
+    '<div class="shell-section"><h3>应用信息</h3><ul>'
+    +'<li>版本: v0.1.0 (dev)</li><li>平台: macos</li><li>构建: dev</li></ul></div>'
+    +'<div class="shell-section"><h3>定位</h3><p>本地优先的 MySQL/MariaDB 数据库工作台（面向开发、测试、运维与数据分析）。</p></div>'
+    +'<div class="shell-section"><h3>当前发布阶段</h3><p>V1 重制原型（P6）· 覆盖 12 页面 / 57 功能 / B 类修复 13 项。</p></div>'}
+};
+function openShell(kind){
+  $('shellTitle').textContent=SHELL_CONTENT[kind].title;
+  $('shellBody').innerHTML=SHELL_CONTENT[kind].html;
+  $('shellOverlay').classList.add('on');
+  requestAnimationFrame(function(){$('shellPanel').classList.add('on');});
+}
+function closeShell(){
+  $('shellPanel').classList.remove('on');
+  $('shellOverlay').classList.remove('on');
+}
+
+/* =====================================================================
+   视图切换（F055，B13 回填提示）
+   ===================================================================== */
+var VIEW_TAGS={query:'PAGE004+005 · PRD §6',grid:'PAGE006 · PRD §6',design:'PAGE007 · PRD §6',sync:'PAGE008 · PRD §6',backup:'PAGE009 · PRD §6'};
+function setView(mode){
+  if(mode==='grid'&&!state.grid.table)return;
+  if(mode==='design'){
+    if(state.creating){/* keep new mode */}
+    else if(state.currentTableName)initDesignerEdit();
+    else return;
+  }
+  state.view=mode;
+  document.querySelectorAll('.view-btn').forEach(function(b){
+    b.classList.toggle('active',b.dataset.view===mode);
+  });
+  document.querySelectorAll('.view').forEach(function(v){v.classList.remove('on');});
+  $('view-'+mode).classList.add('on');
+  $('viewPageTag').textContent=VIEW_TAGS[mode];
+  $('creatingIndicator').style.display=state.creating&&mode!=='query'?'flex':'none';
+  $('creatingDb').textContent=state.targetDatabase;
+  if(mode==='grid')renderGrid();
+  if(mode==='query'&&state.currentTableName){
+    /* F055：切回查询自动重查当前表并回填编辑器（B13：给提示，不再静默覆盖） */
+    var parts=state.currentTableName.split('.');
+    var sql='SELECT * FROM `'+parts[0]+'`.`'+parts[1]+'` LIMIT 1000;';
+    var hadOwn=getSql().trim()&&getSql().trim()!==sql;
+    setSql(sql);
+    showRefill(hadOwn
+      ?'已自动回填当前表查询（替换了编辑器原有内容 · F055/B13 · 旧项目为静默覆盖）'
+      :'已自动回填当前表查询并重新执行（F055）');
+    runSql();
+  }
+}
+function showRefill(text){
+  $('refillText').textContent=text;
+  $('refillNotice').classList.add('on');
+}
+function hideRefill(){$('refillNotice').classList.remove('on');}
+
+/* =====================================================================
+   五态场景库（评审面板）
+   ===================================================================== */
+function setScene(scene){
+  state.scene=scene;
+  document.querySelectorAll('.scene-btn').forEach(function(b){b.classList.toggle('on',b.dataset.scene===scene);});
+  var notes={
+    success:'默认全链路数据态。',
+    loading:'加载态锁定：结果「执行中...」、网格/树「加载中...」（切场景库继续）。',
+    errorConn:'连接失败路径：测试超时 5 秒 / 查询 Can\'t connect / Schema 错误文案。',
+    errorSql:'SQL 报错路径：⚠ + errno 1064 完整错误详情（page-spec 三、③）。',
+    empty:'空数据：查询 0 行（列头保留）+ 空表占位。',
+    gate:'权限/门禁：网格只读横幅 + 结果只读原因（B11）+ 双击提示。'
+  };
+  $('sceneNote').textContent=notes[scene]||'';
+  if(scene==='loading'){
+    /* 场景锁定：保持加载态直到切换场景 */
+    state.loading=true;state.result=null;state.resultError=null;
+    renderSchemaTree();renderGrid();renderResults();
+    return;
+  }
+  state.loading=false;
+  if(scene==='errorConn'){
+    state.result=null;
+    state.resultError='连接失败: Can\'t connect to MySQL server on \'localhost\' (61)';
+    renderResults();return;
+  }
+  if(scene==='errorSql'){
+    state.result=null;
+    state.resultError='SQL 错误: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near \'FORM users\' at line 1 (errno 1064)';
+    renderResults();return;
+  }
+  if(scene==='gate'){
+    selectTable('shop','log_no_pk',false);
+    setView('grid');
+    notifyInfo('已切换到无单列主键表（只读门禁演示）');
+    return;
+  }
+  if(scene==='empty'){
+    if(state.conn)selectTable('shop','archive_empty',false);
+    setView('grid');
+    return;
+  }
+  renderSchemaTree();renderGrid();renderResults();
+}
+
+/* =====================================================================
+   评审面板辅助
+   ===================================================================== */
+var PAGES=[
+  ['PAGE001',function(){setView('query');pulse($('app'));}],
+  ['PAGE002',function(){$('connArea').classList.add('pulse');setTimeout(function(){$('connArea').classList.remove('pulse');},2000);openConnForm(null);}],
+  ['PAGE003',function(){if(state.conn){state.expanded.shop=true;renderSchemaTree();}$('schemaTree').classList.add('pulse');setTimeout(function(){$('schemaTree').classList.remove('pulse');},2000);}],
+  ['PAGE004',function(){setView('query');}],
+  ['PAGE005',function(){setView('query');runSql();}],
+  ['PAGE006',function(){selectTable('shop','users',false);}],
+  ['PAGE007',function(){selectTable('shop','users',false);setView('design');}],
+  ['PAGE008',function(){setView('sync');}],
+  ['PAGE009',function(){setView('backup');}],
+  ['PAGE010',function(){demoToasts();confirmAction({title:'危险确认演示',message:'这是全局确认对话框（tone=danger）。遮罩点击与 Esc 均视为取消。',confirmLabel:'确认',tone:'danger'});}],
+  ['PAGE011',function(){openShell('settings');}],
+  ['PAGE012',function(){demoBatch();}]
+];
+var BCHECK=[
+  ['B1','连接编辑密码不清空（留空=保持原密码）','openConnForm(\'c1\')'],
+  ['B2','分句预览（字符串内分号正确识别）','demoStmt()'],
+  ['B3','批量进度面板接线（PAGE012）','demoBatch()'],
+  ['B4','导出文件名默认值兜底','runSql()'],
+  ['B5','方言高亮按 driver 映射（MySQL）','setView(\'query\')'],
+  ['B6','diff SQL 预览正确插值','gotoSyncDetail()'],
+  ['B7','历史搜索过滤生效','toggleHistoryOn()'],
+  ['B8','FROM/JOIN 表名补全接 Schema 树','focusEditor()'],
+  ['B9','网格编辑 Tab 保留值','gotoGridEdit()'],
+  ['B10','编辑/导出能力统一（文件名+交互）','gotoGrid()'],
+  ['B11','结果只读原因提示','gotoReadonlyResult()'],
+  ['B12','图标系统化（内联 SVG）','notifyInfo(\'全部图标已 SVG 化（assets.md §1）\')'],
+  ['B13','测试失败直达编辑 / 回填与残留提示','testFailDemo()']
+];
+function pulse(el){el.classList.add('pulse');setTimeout(function(){el.classList.remove('pulse');},2000);}
+function focusEditor(){setView('query');$('sqlInput').focus();
+  var ta=$('sqlInput');ta.selectionStart=ta.selectionEnd=ta.value.length;
+  onSqlKeyup({key:'x'});
+  notifyInfo('在编辑器输入 FROM 后可见表名补全（B8）');
+}
+function demoStmt(){
+  setView('query');
+  setSql("SELECT * FROM `shop`.`users` WHERE user_name = 'a;b';\nUPDATE `shop`.`users` SET status = 1 WHERE id = 1;");
+  updateStmtPreview();
+  notifyInfo('分句预览：应为 2 条（字符串内分号不拆断）');
+}
+function gotoSyncDetail(){
+  setView('sync');
+  if(!state.sync.diffs){
+    $('syncSource').value='shop';$('syncTarget').value='analytics';
+    syncCompare();
+    setTimeout(function(){state.sync.detail='users';renderSync();},900);
+  }else{state.sync.detail='users';renderSync();}
+}
+function gotoGrid(){selectTable('shop','users',false);}
+function gotoGridEdit(){
+  selectTable('shop','users',false);
+  setTimeout(function(){gridEditCell(0,1);notifyInfo('编辑中按 Tab：保留当前值并跳下一列（B9）');},200);
+}
+function gotoReadonlyResult(){
+  setView('query');
+  setSql('SELECT u.user_name, o.amount FROM `shop`.`users` u JOIN `shop`.`orders` o ON u.id = o.user_id;');
+  state.editableTable='';
+  runSql();
+}
+function testFailDemo(){
+  openConnForm('c2');
+  setTimeout(function(){testConnForm();},300);
+}
+function demoToasts(){
+  notifySuccess('操作成功（success · 3.2s）');
+  setTimeout(function(){notifyError('操作失败（error · 4.5s）');},300);
+  setTimeout(function(){notifyInfo('中性提示（info · 3.2s）');},600);
+}
+
+/* =====================================================================
+   初始化
+   ===================================================================== */
+function renderAll(){
+  renderConnList();
+  renderSchemaTree();
+}
+function init(){
+  $('pageJump').innerHTML=PAGES.map(function(p,i){
+    return '<button class="scene-btn" onclick="PAGES['+i+'][1]()">'+p[0]+'</button>';
+  }).join('');
+  $('bcheck').innerHTML=BCHECK.map(function(b){
+    return '<div class="bcheck-item"><span class="bno">'+b[0]+'</span><a href="#" onclick="'+b[2]+';return false" style="color:var(--ql-primary)">'+esc(b[1])+'</a></div>';
+  }).join('');
+  linkNewDbCollation();
+  initSyncSelects();
+  initBackupSelects();
+  setSql(DEFAULT_SQL);
+  renderConnList();
+  renderConnInfoBar();
+  renderHistory();
+  renderResults();
+  renderGrid();
+  setStatus('Ready');
+  /* 默认选中演示连接与表，直接呈现 Success 主链路 */
+  setTimeout(function(){
+    state.conn=connections[0];
+    state.expanded.shop=true;
+    state.currentDatabase='shop';state.currentTable='users';state.currentTableName='shop.users';
+    state.grid.db='shop';state.grid.table='users';
+    $('btnViewGrid').style.display='';$('btnViewDesign').style.display='';
+    setStatus('Connected to 本地开发库');
+    renderAll();renderConnInfoBar();
+    runSql();
+  },400);
+}
+init();
+</script>
+</body>
+</html>
